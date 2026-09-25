@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import br.com.paywallet.ledger.Money;
+import br.com.paywallet.merchant.ChargePaidEvent;
 import br.com.paywallet.messaging.EventHeaders;
 import br.com.paywallet.messaging.Topics;
 import br.com.paywallet.pix.PixReceivedEvent;
@@ -50,6 +51,15 @@ public class PaymentNotificationListener {
         var event = objectMapper.readValue(payload, PixReceivedEvent.class);
         notifyOnce(eventId, event.payeeEmail(), "You received a Pix of R$ %s from %s"
                 .formatted(Money.fromCents(event.amountCents()).toPlainString(), event.payerName()));
+    }
+
+    @KafkaListener(topics = Topics.CHARGES_PAID, groupId = "notifications")
+    public void onChargePaid(String payload, @Header(EventHeaders.EVENT_ID) String eventId)
+            throws JsonProcessingException {
+        var event = objectMapper.readValue(payload, ChargePaidEvent.class);
+        String label = event.reference() != null ? event.reference() : event.chargeId().toString();
+        notifyOnce(eventId, event.merchantEmail(), "Charge %s paid: R$ %s (R$ %s net)".formatted(label,
+                Money.fromCents(event.amountCents()).toPlainString(), Money.fromCents(event.netCents()).toPlainString()));
     }
 
     private void notifyOnce(String eventId, String email, String message) {

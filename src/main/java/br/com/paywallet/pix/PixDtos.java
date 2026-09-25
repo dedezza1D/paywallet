@@ -70,6 +70,7 @@ public final class PixDtos {
             @NotBlank String payerName,
             String payerDocument,
             @NotBlank @Pattern(regexp = "\\d{8}") String payerIspb,
-            @Size(max = 140) String description) {
+            @Size(max = 140) String description,
+            @Size(max = 25) String txid) {
     }
 }

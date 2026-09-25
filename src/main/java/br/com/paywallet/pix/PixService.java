@@ -27,6 +27,9 @@ import br.com.paywallet.ledger.LedgerService.Leg;
 import br.com.paywallet.ledger.LedgerService.PostCommand;
 import br.com.paywallet.ledger.LedgerTransactionType;
 import br.com.paywallet.ledger.Money;
+import br.com.paywallet.merchant.ChargeService;
+import br.com.paywallet.merchant.Fee;
+import br.com.paywallet.merchant.PaymentMethod;
 import br.com.paywallet.messaging.Topics;
 import br.com.paywallet.outbox.OutboxWriter;
 import br.com.paywallet.pix.PixDtos.IncomingPix;
@@ -58,13 +61,14 @@ public class PixService {
     private final OutboxWriter outbox;
     private final TransactionTemplate transactions;
     private final EntityManager em;
+    private final ChargeService charges;
     private final PixProperties props;
     private final Clock clock;
 
     public PixService(PixKeyService keys, PixPaymentRepository payments, UserService users, LedgerService ledger,
                       AuthorizationClient authorizer, IdempotencyGuard idempotency, DailyLimitService limits,
                       BalanceCache balanceCache, OutboxWriter outbox, TransactionTemplate transactions,
-                      EntityManager em, PixProperties props, Clock clock) {
+                      EntityManager em, ChargeService charges, PixProperties props, Clock clock) {
         this.keys = keys;
         this.payments = payments;
         this.users = users;
@@ -76,11 +80,13 @@ public class PixService {
         this.outbox = outbox;
         this.transactions = transactions;
         this.em = em;
+        this.charges = charges;
         this.props = props;
         this.clock = clock;
     }
 
-    private record Order(String key, long amount, String description) {
+    /** {@code txid} comes from a QR code and links the Pix to a merchant charge. */
+    private record Order(String key, long amount, String description, String txid) {
     }
 
     public SendResult send(Long payerId, SendPixRequest req, String idempotencyKey) {
@@ -146,13 +152,18 @@ public class PixService {
         User payee = users.get(destination.localUserId());
         var now = clock.instant();
         String endToEndId = EndToEndIds.generate(props.ispb(), now);
+        var charge = charges.claimForPix(order.txid(), payee.getId(), order.amount(), true);
+        Fee fee = charge.map(c -> charges.pixFee(order.amount())).orElse(null);
+        var payerWallet = ledger.walletOf(payer.getId()).getId();
         var tx = ledger.post(new PostCommand(LedgerTransactionType.PIX_INTERNAL, scopedKey, "Pix " + endToEndId,
-                List.of(Leg.debit(ledger.walletOf(payer.getId()).getId(), order.amount()),
-                        Leg.credit(ledger.walletOf(payee.getId()).getId(), order.amount()))));
+                fee != null ? charges.splitLegs(payerWallet, payee.getId(), order.amount(), fee)
+                        : List.of(Leg.debit(payerWallet, order.amount()),
+                                Leg.credit(ledger.walletOf(payee.getId()).getId(), order.amount()))));
         var payment = PixPayment.internal(endToEndId, payer.getId(), payee.getId(), destination.key(),
                 payee.getFullName(), Documents.mask(payee.getDocument()), props.ispb(), order.amount(),
                 order.description(), scopedKey, tx.getId(), tx.getCreatedAt());
         em.persist(payment);
+        charge.ifPresent(c -> charges.markPaid(c, PaymentMethod.PIX, payer.getId(), endToEndId, fee, tx.getId()));
         outbox.append(Topics.PIX_RECEIVED, payee.getId().toString(), PixReceivedEvent.TYPE,
                 new PixReceivedEvent(endToEndId, payee.getId(), payee.getEmail(), payer.getFullName(),
                         order.amount(), tx.getCreatedAt()));
@@ -187,14 +198,19 @@ public class PixService {
         PixPayment payment;
         try {
             payment = transactions.execute(status -> {
+                // The money already left the payer's bank, so an unpayable charge cannot refuse it.
+                var charge = charges.claimForPix(incoming.txid(), payee.getId(), amount, false);
+                Fee fee = charge.map(c -> charges.pixFee(amount)).orElse(null);
                 var tx = ledger.post(new PostCommand(LedgerTransactionType.PIX_IN, "pix-in:" + incoming.endToEndId(),
                         "Pix " + incoming.endToEndId(),
-                        List.of(Leg.debit(AccountType.PIX_SETTLEMENT_ACCOUNT_ID, amount),
-                                Leg.credit(ledger.walletOf(payee.getId()).getId(), amount))));
+                        fee != null ? charges.splitLegs(AccountType.PIX_SETTLEMENT_ACCOUNT_ID, payee.getId(), amount, fee)
+                                : List.of(Leg.debit(AccountType.PIX_SETTLEMENT_ACCOUNT_ID, amount),
+                                        Leg.credit(ledger.walletOf(payee.getId()).getId(), amount))));
                 var received = PixPayment.incoming(incoming.endToEndId(), payee.getId(), localKey.getValue(),
                         incoming.payerName(), Documents.mask(incoming.payerDocument()), incoming.payerIspb(), amount,
                         incoming.description(), tx.getId(), tx.getCreatedAt());
                 em.persist(received);
+                charge.ifPresent(c -> charges.markPaid(c, PaymentMethod.PIX, null, incoming.endToEndId(), fee, tx.getId()));
                 outbox.append(Topics.PIX_RECEIVED, payee.getId().toString(), PixReceivedEvent.TYPE,
                         new PixReceivedEvent(incoming.endToEndId(), payee.getId(), payee.getEmail(),
                                 incoming.payerName(), amount, tx.getCreatedAt()));
@@ -225,7 +241,7 @@ public class PixService {
             if (req.value() == null) {
                 throw new BusinessException("Amount is required");
             }
-            return new Order(req.key(), Money.toCents(req.value()), req.description());
+            return new Order(req.key(), Money.toCents(req.value()), req.description(), null);
         }
         BrCode code = BrCode.parse(req.brCode());
         BigDecimal amount = code.amount() != null ? code.amount() : req.value();
@@ -236,7 +252,7 @@ public class PixService {
             throw new BusinessException("Amount differs from the QR code");
         }
         String description = req.description() != null ? req.description() : code.description();
-        return new Order(code.key(), Money.toCents(amount), description);
+        return new Order(code.key(), Money.toCents(amount), description, code.txid());
     }
 
     private SendResult replay(PixPayment payment, Order order) {
