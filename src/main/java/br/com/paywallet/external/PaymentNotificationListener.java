@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import br.com.paywallet.ledger.Money;
 import br.com.paywallet.messaging.EventHeaders;
 import br.com.paywallet.messaging.Topics;
+import br.com.paywallet.pix.PixReceivedEvent;
 import br.com.paywallet.wallet.TransferCompletedEvent;
 
 /**
@@ -20,7 +21,7 @@ import br.com.paywallet.wallet.TransferCompletedEvent;
  * twice. The marker is removed when sending fails, letting the Kafka retry (and eventually the DLT) take over.
  */
 @Component
-public class TransferNotificationListener {
+public class PaymentNotificationListener {
 
     private static final Duration DEDUP_TTL = Duration.ofDays(7);
 
@@ -28,8 +29,8 @@ public class TransferNotificationListener {
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
 
-    public TransferNotificationListener(NotificationClient notificationClient, StringRedisTemplate redis,
-                                        ObjectMapper objectMapper) {
+    public PaymentNotificationListener(NotificationClient notificationClient, StringRedisTemplate redis,
+                                       ObjectMapper objectMapper) {
         this.notificationClient = notificationClient;
         this.redis = redis;
         this.objectMapper = objectMapper;
@@ -39,13 +40,24 @@ public class TransferNotificationListener {
     public void onTransferCompleted(String payload, @Header(EventHeaders.EVENT_ID) String eventId)
             throws JsonProcessingException {
         var event = objectMapper.readValue(payload, TransferCompletedEvent.class);
+        notifyOnce(eventId, event.payeeEmail(), "You received R$ %s from %s"
+                .formatted(Money.fromCents(event.amountCents()).toPlainString(), event.payerName()));
+    }
+
+    @KafkaListener(topics = Topics.PIX_RECEIVED, groupId = "notifications")
+    public void onPixReceived(String payload, @Header(EventHeaders.EVENT_ID) String eventId)
+            throws JsonProcessingException {
+        var event = objectMapper.readValue(payload, PixReceivedEvent.class);
+        notifyOnce(eventId, event.payeeEmail(), "You received a Pix of R$ %s from %s"
+                .formatted(Money.fromCents(event.amountCents()).toPlainString(), event.payerName()));
+    }
+
+    private void notifyOnce(String eventId, String email, String message) {
         String marker = "notified:" + eventId;
         if (!Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(marker, "1", DEDUP_TTL))) {
             return;
         }
-        boolean sent = notificationClient.send(event.payeeEmail(), "You received R$ %s from %s"
-                .formatted(Money.fromCents(event.amountCents()).toPlainString(), event.payerName()));
-        if (!sent) {
+        if (!notificationClient.send(email, message)) {
             redis.delete(marker);
             throw new IllegalStateException("Notification for event " + eventId + " was not delivered");
         }

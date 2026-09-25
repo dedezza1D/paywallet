@@ -1,5 +1,6 @@
 package br.com.paywallet;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -29,6 +30,7 @@ import org.testcontainers.utility.DockerImageName;
 import br.com.paywallet.auth.TokenService;
 import br.com.paywallet.external.AuthorizationClient;
 import br.com.paywallet.external.NotificationClient;
+import br.com.paywallet.pix.PixGateway;
 import br.com.paywallet.user.UserDtos.CreateUserRequest;
 import br.com.paywallet.user.UserDtos.UserResponse;
 import br.com.paywallet.user.UserService;
@@ -67,10 +69,15 @@ public abstract class IntegrationTest {
         registry.add("app.storage.access-key", S3::getAccessKey);
         registry.add("app.storage.secret-key", S3::getSecretKey);
         registry.add("app.outbox.poll-interval", () -> "200ms");
+        registry.add("app.pix.settlement-interval", () -> "200ms");
+        registry.add("app.pix.webhook-secret", () -> WEBHOOK_SECRET);
     }
+
+    protected static final String WEBHOOK_SECRET = "test-webhook-secret";
 
     @MockitoBean protected AuthorizationClient authorizationClient;
     @MockitoBean protected NotificationClient notificationClient;
+    @MockitoBean protected PixGateway pixGateway;
 
     @Autowired protected MockMvc mvc;
     @Autowired protected UserService userService;
@@ -84,6 +91,7 @@ public abstract class IntegrationTest {
     void externalServicesSucceedByDefault() {
         when(authorizationClient.isAuthorized()).thenReturn(true);
         when(notificationClient.send(anyString(), anyString())).thenReturn(true);
+        when(pixGateway.submit(any())).thenReturn(PixGateway.SubmitResult.ok());
     }
 
     /** Unique document and email per call: ledger rows are immutable, so the database is never cleaned. */

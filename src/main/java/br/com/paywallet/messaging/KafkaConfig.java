@@ -28,6 +28,16 @@ public class KafkaConfig {
         return TopicBuilder.name(Topics.TRANSFERS_COMPLETED + "-dlt").partitions(PARTITIONS).build();
     }
 
+    @Bean
+    NewTopic pixReceivedTopic() {
+        return TopicBuilder.name(Topics.PIX_RECEIVED).partitions(PARTITIONS).build();
+    }
+
+    @Bean
+    NewTopic pixReceivedDlt() {
+        return TopicBuilder.name(Topics.PIX_RECEIVED + "-dlt").partitions(PARTITIONS).build();
+    }
+
     /**
      * Retries a failing record a few times, then parks it in "{topic}-dlt" so one poison message cannot
      * block its partition. Malformed payloads go straight to the DLT since retrying cannot fix them.

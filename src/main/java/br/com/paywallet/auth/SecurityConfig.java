@@ -54,6 +54,8 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**",
                                 "/swagger-ui.html").permitAll()
                         .requestMatchers("/error").permitAll()
+                        // Authenticated by an HMAC signature from the PSP instead of a user token.
+                        .requestMatchers(HttpMethod.POST, "/pix/webhooks/**").permitAll()
                         .requestMatchers("/ledger/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN")
                         // In production money comes in through Pix/boleto; deposits here are admin-only (self in dev).

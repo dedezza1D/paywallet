@@ -64,6 +64,17 @@ app:
     batch-size: 100
     send-timeout: 10s
     retention: 7d
+  pix:
+    gateway: ${PIX_GATEWAY:simulated}
+    ispb: ${PIX_ISPB:99999998}
+    institution-name: PayWallet
+    merchant-city: SAO PAULO
+    settlement-interval: 500ms
+    webhook-secret: ${PIX_WEBHOOK_SECRET:}
+    webhook-tolerance: 5m
+    lookups-per-minute: 30
+    max-keys-individual: 5
+    max-keys-merchant: 20
   limits:
     daily-transfer: ${DAILY_TRANSFER_LIMIT:5000.00}
     zone: America/Sao_Paulo

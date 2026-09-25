@@ -63,9 +63,10 @@ Guarantees enforced **by the database itself**:
 - A deferred constraint trigger rejects, at `COMMIT`, any transaction whose debits and credits differ.
 - `CHECK (allow_negative OR balance >= 0)`: user wallets never go negative.
 
-System accounts: `SYSTEM_CASH_IN` offsets money entering from outside and goes negative, and `SYSTEM_FEES`
-holds revenue. **All balances always sum to zero**, which `GET /ledger/reconciliation` verifies along with each
-snapshot against its postings.
+System accounts: `SYSTEM_CASH_IN` (manual cash-in), `SYSTEM_PIX_SETTLEMENT` (Pix exchanged with other
+institutions) and `SYSTEM_FEES` (revenue). The first two go negative because they offset money held for customers.
+**All balances always sum to zero**, which `GET /ledger/reconciliation` verifies along with each snapshot
+against its postings.
 
 Accounts involved in a movement are locked with `SELECT ... FOR UPDATE` in a fixed order, so crossing
 transfers cannot deadlock.
@@ -120,6 +121,38 @@ Feed entries hold the message, visibility (`PUBLIC`/`PRIVATE`) and participants,
    notification consumers pick it up.
 8. Any failure in steps 5 and 6 releases the limit reservation.
 
+## Pix
+
+Talking to the central bank directly (SPI settlement and DICT directory, over the RSFN private network with
+ICP-Brasil certificates) requires being a Pix participant or going through a PSP. That boundary is the
+`PixGateway` interface; everything else is implemented here. Locally, `SimulatedPixGateway` stands in for the PSP:
+keys starting with `unknown` are not found and payments to keys starting with `reject` are refused.
+
+**Keys.** CPF/CNPJ keys must be the holder's own document and email keys the account email. Phone keys are
+accepted without the SMS confirmation a production system needs. Random keys (EVP) are generated. Limits follow
+the BCB rules: 5 keys for individuals, 20 for merchants. Before paying, `GET /pix/keys/lookup` shows the
+receiver's name, CPF masked as `***.456.789-**` and institution; it is limited to 30 lookups per user per
+minute to prevent harvesting the directory.
+
+**Sending.** Every Pix gets a BCB end-to-end id (`E` + ISPB + timestamp + 11 characters) and uses the same
+idempotency, daily limit and authorizer as transfers.
+
+- Key of a user of this institution: settled immediately in the ledger (`PIX_INTERNAL`), response `201 COMPLETED`.
+- Key at another institution: the payer is debited against the `SYSTEM_PIX_SETTLEMENT` account (`PIX_OUT`) and the
+  payment is `202 PENDING`. A worker submits pending payments to the gateway with `SKIP LOCKED`. Accepted payments
+  become `COMPLETED`; rejected ones are reversed in the ledger (`PIX_OUT_REVERSAL`), become `FAILED` with the reason
+  and release the daily limit. If the network is unreachable, the payment stays pending and is retried.
+
+**Receiving.** The PSP calls `POST /pix/webhooks/incoming`, authenticated by
+`X-Pix-Signature = hex(HMAC-SHA256(secret, X-Pix-Timestamp + "." + body))` instead of a user token. Timestamps
+older than 5 minutes are refused, the comparison is constant-time, and the end-to-end id makes redelivery
+harmless. The credit (`PIX_IN`) and a `PixReceived` outbox event, which notifies the payee through Kafka, are
+written in one transaction.
+
+**QR codes.** `POST /pix/qr-codes` returns a static BR Code ("Pix copy and paste"): an EMV payload with the key,
+optional amount, description and txid, closed by a CRC16. Payers can pay with the BR Code instead of the key;
+when the code carries an amount, it is enforced.
+
 ## Running
 
 ```bash
@@ -161,7 +194,15 @@ mvn test
 | POST | `/users/{id}/kyc-documents` | owner | Upload a document (multipart: `type`, `file`) |
 | GET | `/users/{id}/kyc-documents` | owner | List documents |
 | GET | `/users/{id}/kyc-documents/{doc}/download-url` | owner | Presigned URL (5 min) |
-| POST | `/users/{id}/deposit` | admin | Incoming money (simulates Pix-in). Requires `Idempotency-Key`. Owner allowed when `ALLOW_SELF_DEPOSIT=true` (dev) |
+| POST | `/pix/keys` | user | Register a Pix key (`CPF`, `CNPJ`, `EMAIL`, `PHONE`, `EVP`) |
+| GET | `/pix/keys` | user | List own keys |
+| DELETE | `/pix/keys/{keyId}` | user | Delete an own key |
+| GET | `/pix/keys/lookup?key=` | user | Receiver name (masked document) before paying. Rate limited |
+| POST | `/pix/qr-codes` | user | Static BR Code for an own key |
+| POST | `/pix/payments` | user | Send a Pix by key or BR Code. Requires `Idempotency-Key`. 201 settled, 202 pending |
+| GET | `/pix/payments/{endToEndId}` | payer or payee | Pix status |
+| POST | `/pix/webhooks/incoming` | HMAC | Incoming Pix notification from the PSP |
+| POST | `/users/{id}/deposit` | admin | Manual cash-in for testing. Requires `Idempotency-Key`. Owner allowed when `ALLOW_SELF_DEPOSIT=true` (dev) |
 | GET | `/users` | admin | List users |
 | GET | `/ledger/reconciliation` | admin | Ledger audit |
 
@@ -220,3 +261,6 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
 - The cached balance may be up to 30 s stale in a rare read/write race; it never affects decisions.
 - The daily limit lives only in Redis; if Redis loses data, the day's counter resets.
 - CPF/CNPJ check digits are not validated.
+- Pix still missing: a real PSP adapter for `PixGateway`, SMS confirmation of phone keys, dynamic QR codes
+  (charges with expiry), the lower nighttime Pix limit (8 p.m. to 6 a.m.), refunds and the BCB special refund
+  mechanism (MED) for fraud, and key portability and claims between institutions.

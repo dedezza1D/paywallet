@@ -92,6 +92,7 @@ services:
       S3_PUBLIC_ENDPOINT: http://localhost:4566
       # Development only: users may simulate deposits into their own wallet.
       ALLOW_SELF_DEPOSIT: "true"
+      PIX_WEBHOOK_SECRET: dev-only-webhook-secret
     ports:
       - "8080:8080"
 
