@@ -1,0 +1,134 @@
+package br.com.paywallet.auth;
+
+import java.io.IOException;
+import java.util.function.Supplier;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationManager;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
+import org.springframework.security.oauth2.server.resource.web.access.BearerTokenAccessDeniedHandler;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import jakarta.servlet.http.HttpServletResponse;
+
+/**
+ * Stateless API: every request carries a bearer JWT, with no session or cookies and therefore no CSRF.
+ * Users can only see and move their own resources.
+ */
+@Configuration
+public class SecurityConfig {
+
+    private static final String ADMIN = "ROLE_ADMIN";
+
+    @Bean
+    SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityProperties props,
+                                            ObjectMapper objectMapper) throws Exception {
+        http
+                .csrf(csrf -> csrf.disable())
+                .httpBasic(basic -> basic.disable())
+                .formLogin(form -> form.disable())
+                .logout(logout -> logout.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.POST, "/users").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/refresh", "/auth/logout").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json", "/feed").permitAll()
+                        .requestMatchers("/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**",
+                                "/swagger-ui.html").permitAll()
+                        .requestMatchers("/error").permitAll()
+                        .requestMatchers("/ledger/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN")
+                        // In production money comes in through Pix/boleto; deposits here are admin-only (self in dev).
+                        .requestMatchers(HttpMethod.POST, "/users/{id}/deposit")
+                        .access(props.allowSelfDeposit() ? selfOrAdmin() : adminOnly())
+                        .requestMatchers("/users/{id}", "/users/{id}/**").access(selfOrAdmin())
+                        .anyRequest().authenticated())
+                .oauth2ResourceServer(rs -> rs
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
+                        .authenticationEntryPoint(problemEntryPoint(objectMapper))
+                        .accessDeniedHandler(problemAccessDenied(objectMapper)))
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint(problemEntryPoint(objectMapper))
+                        .accessDeniedHandler(problemAccessDenied(objectMapper)))
+                .headers(Customizer.withDefaults());
+        return http.build();
+    }
+
+    /** Maps the "roles" claim to ROLE_* authorities; the principal name is the "sub" claim (user id). */
+    private static JwtAuthenticationConverter jwtAuthenticationConverter() {
+        var authorities = new JwtGrantedAuthoritiesConverter();
+        authorities.setAuthoritiesClaimName(TokenService.ROLES_CLAIM);
+        authorities.setAuthorityPrefix("ROLE_");
+        var converter = new JwtAuthenticationConverter();
+        converter.setJwtGrantedAuthoritiesConverter(authorities);
+        return converter;
+    }
+
+    private static AuthorizationManager<RequestAuthorizationContext> selfOrAdmin() {
+        return (authentication, context) -> {
+            var auth = authenticated(authentication);
+            if (auth == null) {
+                return new AuthorizationDecision(false);
+            }
+            return new AuthorizationDecision(isAdmin(auth) || auth.getName().equals(context.getVariables().get("id")));
+        };
+    }
+
+    private static AuthorizationManager<RequestAuthorizationContext> adminOnly() {
+        return (authentication, context) -> {
+            var auth = authenticated(authentication);
+            return new AuthorizationDecision(auth != null && isAdmin(auth));
+        };
+    }
+
+    private static Authentication authenticated(Supplier<Authentication> supplier) {
+        var auth = supplier.get();
+        return auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken ? null : auth;
+    }
+
+    private static boolean isAdmin(Authentication auth) {
+        return auth.getAuthorities().stream().anyMatch(a -> ADMIN.equals(a.getAuthority()));
+    }
+
+    /** Keeps the standard WWW-Authenticate header while returning the same problem+json body as the rest of the API. */
+    private static AuthenticationEntryPoint problemEntryPoint(ObjectMapper mapper) {
+        var bearer = new BearerTokenAuthenticationEntryPoint();
+        return (request, response, ex) -> {
+            bearer.commence(request, response, ex);
+            writeProblem(mapper, response, HttpStatus.UNAUTHORIZED, "Authentication required or invalid token");
+        };
+    }
+
+    private static AccessDeniedHandler problemAccessDenied(ObjectMapper mapper) {
+        var bearer = new BearerTokenAccessDeniedHandler();
+        return (request, response, ex) -> {
+            bearer.handle(request, response, ex);
+            writeProblem(mapper, response, HttpStatus.FORBIDDEN, "Access to this resource is denied");
+        };
+    }
+
+    private static void writeProblem(ObjectMapper mapper, HttpServletResponse response, HttpStatus status,
+                                     String detail) throws IOException {
+        response.setStatus(status.value());
+        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        mapper.writeValue(response.getOutputStream(), ProblemDetail.forStatusAndDetail(status, detail));
+    }
+}
