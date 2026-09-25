@@ -65,14 +65,14 @@ class WalletIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.content[1].type").value("CASH_IN"));
 
         // Feed and notification are asynchronous.
-        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 assertThat(feed.userFeed(shop.id(), PageRequest.of(0, 10)).getContent())
                         .singleElement()
                         .satisfies(item -> {
                             assertThat(item.message()).isEqualTo("pizza 🍕");
                             assertThat(item.value()).isEqualByComparingTo("20.50");
                         }));
-        verify(notificationClient, timeout(5000)).send(eq(shop.email()), contains("20.50"));
+        verify(notificationClient, timeout(20_000)).send(eq(shop.email()), contains("20.50"));
     }
 
     @Test
@@ -82,7 +82,7 @@ class WalletIntegrationTest extends IntegrationTest {
         walletService.transfer(a.id(), new TransferRequest(BigDecimal.ONE, b.id(), "thanks!", Visibility.PUBLIC), newKey());
 
         // The public feed requires no login.
-        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                 mvc.perform(get("/feed").param("size", "100"))
                         .andExpect(jsonPath("$.content[?(@.message == 'thanks!' && @.payerName == 'Public')]").exists())
                         .andExpect(jsonPath("$.content[0].value").doesNotExist()));

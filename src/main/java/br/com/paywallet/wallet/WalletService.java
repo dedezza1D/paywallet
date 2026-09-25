@@ -5,12 +5,12 @@ import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.exception.ConflictException;
@@ -29,6 +29,8 @@ import br.com.paywallet.ledger.LedgerService.PostCommand;
 import br.com.paywallet.ledger.LedgerTransaction;
 import br.com.paywallet.ledger.LedgerTransactionType;
 import br.com.paywallet.ledger.Money;
+import br.com.paywallet.messaging.Topics;
+import br.com.paywallet.outbox.OutboxWriter;
 import br.com.paywallet.user.User;
 import br.com.paywallet.user.UserService;
 import br.com.paywallet.wallet.WalletDtos.BalanceResponse;
@@ -44,8 +46,9 @@ import br.com.paywallet.wallet.WalletDtos.TransferResult;
  * <ol>
  *   <li>Redis: idempotency lock and daily limit reservation;</li>
  *   <li>external authorizer, called outside any database transaction so no row lock waits on HTTP;</li>
- *   <li>Postgres: atomic double-entry movement with both accounts locked;</li>
- *   <li>after commit: balance cache eviction and an event for the feed and notifications.</li>
+ *   <li>Postgres, in one transaction: double-entry movement with both accounts locked, plus the
+ *       outbox event that later feeds Kafka;</li>
+ *   <li>after commit: balance cache eviction.</li>
  * </ol>
  */
 @Service
@@ -59,18 +62,20 @@ public class WalletService {
     private final IdempotencyGuard idempotency;
     private final DailyLimitService limits;
     private final BalanceCache balanceCache;
-    private final ApplicationEventPublisher events;
+    private final OutboxWriter outbox;
+    private final TransactionTemplate transactions;
 
     public WalletService(UserService users, LedgerService ledger, AuthorizationClient authorizer,
                          IdempotencyGuard idempotency, DailyLimitService limits, BalanceCache balanceCache,
-                         ApplicationEventPublisher events) {
+                         OutboxWriter outbox, TransactionTemplate transactions) {
         this.users = users;
         this.ledger = ledger;
         this.authorizer = authorizer;
         this.idempotency = idempotency;
         this.limits = limits;
         this.balanceCache = balanceCache;
-        this.events = events;
+        this.outbox = outbox;
+        this.transactions = transactions;
     }
 
     /** @param payerId the authenticated user; never taken from the request body */
@@ -121,9 +126,17 @@ public class WalletService {
             if (!authorizer.isAuthorized()) {
                 throw new TransferNotAuthorizedException();
             }
-            tx = ledger.post(new PostCommand(LedgerTransactionType.P2P_TRANSFER, key,
-                    "P2P %d -> %d".formatted(payer.getId(), payee.getId()),
-                    List.of(Leg.debit(payerWallet.getId(), amount), Leg.credit(payeeWallet.getId(), amount))));
+            tx = transactions.execute(status -> {
+                var posted = ledger.post(new PostCommand(LedgerTransactionType.P2P_TRANSFER, key,
+                        "P2P %d -> %d".formatted(payer.getId(), payee.getId()),
+                        List.of(Leg.debit(payerWallet.getId(), amount), Leg.credit(payeeWallet.getId(), amount))));
+                outbox.append(Topics.TRANSFERS_COMPLETED, payer.getId().toString(), TransferCompletedEvent.TYPE,
+                        new TransferCompletedEvent(posted.getId(), payer.getId(), payer.getFullName(),
+                                payee.getId(), payee.getFullName(), payee.getEmail(), amount, req.message(),
+                                req.visibility() == null ? Visibility.PRIVATE : req.visibility(),
+                                posted.getCreatedAt()));
+                return posted;
+            });
         } catch (DataIntegrityViolationException e) {
             releaseLimit(payer.getId(), amount);
             // Race between instances with the same key (e.g. Redis restarted): the database UNIQUE decided.
@@ -135,10 +148,6 @@ public class WalletService {
 
         balanceCache.evict(payer.getId());
         balanceCache.evict(payee.getId());
-        events.publishEvent(new TransferCompletedEvent(tx.getId(), payer.getId(), payer.getFullName(),
-                payee.getId(), payee.getFullName(), payee.getEmail(), amount, req.message(),
-                req.visibility() == null ? Visibility.PRIVATE : req.visibility(), tx.getCreatedAt()));
-
         return new TransferResult(new TransferResponse(tx.getId(), payer.getId(), payee.getId(),
                 Money.fromCents(amount), tx.getCreatedAt()), false);
     }

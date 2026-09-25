@@ -28,6 +28,15 @@ spring:
       pageable:
         serialization-mode: via_dto
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      auto-offset-reset: earliest
+
   servlet:
     multipart:
       max-file-size: 10MB
@@ -50,6 +59,11 @@ app:
     notifier-url: ${NOTIFIER_URL:https://util.devi.tools/api/v1/notify}
     connect-timeout: 2s
     read-timeout: 3s
+  outbox:
+    poll-interval: 500ms
+    batch-size: 100
+    send-timeout: 10s
+    retention: 7d
   limits:
     daily-transfer: ${DAILY_TRANSFER_LIMIT:5000.00}
     zone: America/Sao_Paulo

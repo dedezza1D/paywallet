@@ -5,7 +5,7 @@ import java.util.UUID;
 
 import br.com.paywallet.feed.Visibility;
 
-/** Published after the ledger commit; consumed by the feed and notifications. */
+/** Written to the outbox with the ledger movement and relayed to Kafka; consumed by the feed and notifications. */
 public record TransferCompletedEvent(
         UUID transactionId,
         Long payerId,
@@ -17,4 +17,6 @@ public record TransferCompletedEvent(
         String message,
         Visibility visibility,
         Instant createdAt) {
+
+    public static final String TYPE = "TransferCompleted";
 }

@@ -4,15 +4,19 @@ Digital wallet payments platform built with **Java 21 and Spring Boot 3.5**, usi
 each kind of data lives in the store that best fits it.
 
 ```
-                         ┌─────────────────── API (Spring Boot) ───────────────────┐
-                         │  auth  user  wallet  ledger  feed  kyc  external        │
-                         └────┬──────────┬──────────┬────────┬───────┬─────────────┘
-                              ▼          ▼          ▼        ▼       ▼
-                      PostgreSQL      Redis     PostgreSQL MongoDB  S3 (LocalStack in dev)
-                  users, accounts,  idempotency, (same)     social   private KYC bucket,
-                  ledger, postings, daily limits,           feed     presigned URLs
-                  refresh tokens,   balance cache,
-                  KYC metadata      login throttling
+  POST /transfer
+       │
+       ▼
+  ┌──────────── one PostgreSQL transaction ────────────┐        ┌───────── Kafka ─────────┐
+  │ ledger postings  +  outbox_events row              │─relay─▶│ transfers.completed     │
+  └────────────────────────────────────────────────────┘        └───┬─────────────────┬───┘
+                                                                     ▼                 ▼
+                                                           group "feed"       group "notifications"
+                                                           → MongoDB feed     → notification service
+                                                                     └── failures ──▶ transfers.completed-dlt
+
+  Redis: idempotency locks, daily limits, balance cache, login throttling
+  S3 (LocalStack in dev): private KYC bucket served through presigned URLs
 ```
 
 ## Business rules
@@ -20,7 +24,8 @@ each kind of data lives in the store that best fits it.
 - Two user types: **individuals** (CPF) send and receive money; **merchants** (CNPJ) only receive.
 - A transfer requires enough funds, stays within the daily limit and is checked by an external authorizer.
 - Money movements are atomic: any failure rolls back both debit and credit.
-- After commit, the payee is notified asynchronously and the activity is written to the social feed.
+- Every committed transfer produces exactly one event, from which the payee is notified and the social feed
+  is updated asynchronously.
 
 ## Authentication
 
@@ -81,6 +86,19 @@ If Redis is down the balance cache falls back to the database, while transfers a
 Feed entries hold the message, visibility (`PUBLIC`/`PRIVATE`) and participants, with a unique index on
 `transactionId` so reprocessing an event never duplicates it. The public feed never exposes amounts.
 
+### Events: transactional outbox and Kafka
+
+- The transfer writes its `TransferCompleted` event to `outbox_events` **in the same transaction** as the ledger
+  postings, so money never moves without its event and no event exists for a rolled-back transfer.
+- A relay polls pending rows with `FOR UPDATE SKIP LOCKED` (safe with several instances), publishes them to
+  `paywallet.transfers.completed` in creation order and marks them published. If Kafka is down, rows wait and
+  are retried; `attempts` and `last_error` show why. Published rows are deleted after 7 days.
+- Messages are keyed by payer, so each user's events stay ordered within a partition.
+- Delivery is **at least once**, so every consumer is idempotent: the feed relies on its unique index and
+  notifications on a Redis marker per `event-id` header.
+- Each consumer has its own group (`feed`, `notifications`). A record that keeps failing is retried 3 times and
+  then parked in `paywallet.transfers.completed-dlt`; malformed payloads go there immediately.
+
 ### Object storage (S3): KYC documents
 
 - Private bucket. Metadata (object key, SHA-256, review status) lives in Postgres and the file in the bucket.
@@ -97,8 +115,9 @@ Feed entries hold the message, visibility (`PUBLIC`/`PRIVATE`) and participants,
 3. Business rules (merchants cannot send; unlocked funds pre-check).
 4. Daily limit reservation (Redis, atomic).
 5. External authorizer, called outside any database transaction so no lock waits on HTTP.
-6. Ledger: lock both accounts, debit and credit, write postings, all in one transaction.
-7. After commit: evict balance cache and publish an event for the feed (MongoDB) and notification.
+6. One Postgres transaction: lock both accounts, debit and credit, write postings and the outbox event.
+7. After commit: evict the balance cache. The relay then publishes the event to Kafka, where the feed and
+   notification consumers pick it up.
 8. Any failure in steps 5 and 6 releases the limit reservation.
 
 ## Running
@@ -113,11 +132,11 @@ Local S3 (LocalStack): http://localhost:4566.
 Infrastructure only, with the application running locally (JDK 21 and Maven):
 
 ```bash
-docker compose up -d postgres redis mongo s3
+docker compose up -d postgres redis mongo s3 kafka
 mvn spring-boot:run
 ```
 
-Integration tests use **Testcontainers** (Postgres, Redis, MongoDB and S3 via LocalStack), so Docker must be running:
+Integration tests use **Testcontainers** (Postgres, Redis, MongoDB, Kafka and S3 via LocalStack), so Docker must be running:
 
 ```bash
 mvn test
@@ -194,8 +213,8 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
 
 ## Known limitations and next steps
 
-- **Outbox**: the post-commit event is published in memory; if the app crashes between commit and publish, the
-  feed entry and notification are lost (the money is not). Outbox plus Kafka fixes this.
+- Records in the DLT are not replayed automatically; they need inspection and a manual re-publish.
+- The outbox is polled; at very high volume, change data capture (e.g. Debezium) on `outbox_events` avoids polling.
 - Access tokens cannot be revoked before they expire (15 min); refresh tokens can.
 - Login throttling is per email only, so an attacker can temporarily lock out a victim. Add per-IP limits at the gateway.
 - The cached balance may be up to 30 s stale in a rare read/write race; it never affects decisions.

@@ -1,5 +1,6 @@
 package br.com.paywallet;
 
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -21,6 +22,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.containers.localstack.LocalStackContainer;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.utility.DockerImageName;
 
@@ -51,16 +53,20 @@ public abstract class IntegrationTest {
             .withServices(LocalStackContainer.Service.S3)
             .withEnv("S3_SKIP_SIGNATURE_VALIDATION", "0");
 
+    @ServiceConnection
+    protected static final KafkaContainer KAFKA = new KafkaContainer("apache/kafka:4.0.0");
+
     static {
-        Startables.deepStart(POSTGRES, MONGO, REDIS, S3).join();
+        Startables.deepStart(POSTGRES, MONGO, REDIS, S3, KAFKA).join();
     }
 
     @DynamicPropertySource
-    static void storageProperties(DynamicPropertyRegistry registry) {
+    static void properties(DynamicPropertyRegistry registry) {
         registry.add("app.storage.endpoint", () -> S3.getEndpoint().toString());
         registry.add("app.storage.region", S3::getRegion);
         registry.add("app.storage.access-key", S3::getAccessKey);
         registry.add("app.storage.secret-key", S3::getSecretKey);
+        registry.add("app.outbox.poll-interval", () -> "200ms");
     }
 
     @MockitoBean protected AuthorizationClient authorizationClient;
@@ -75,8 +81,9 @@ public abstract class IntegrationTest {
     protected static final String PASSWORD = "strong-password-123";
 
     @BeforeEach
-    void authorizeByDefault() {
+    void externalServicesSucceedByDefault() {
         when(authorizationClient.isAuthorized()).thenReturn(true);
+        when(notificationClient.send(anyString(), anyString())).thenReturn(true);
     }
 
     /** Unique document and email per call: ledger rows are immutable, so the database is never cleaned. */
