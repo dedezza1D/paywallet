@@ -19,7 +19,13 @@ public enum AccountType {
     /** Interest and late charges earned on loans. */
     SYSTEM_INTEREST_INCOME,
     /** IOF withheld from customers until paid to the government. */
-    SYSTEM_TAX_PAYABLE;
+    SYSTEM_TAX_PAYABLE,
+    /** Debit card money reserved at authorization until cleared or released. */
+    SYSTEM_CARD_HOLDS,
+    /** Owed to the card network for cleared purchases. */
+    SYSTEM_CARD_SETTLEMENT,
+    /** What credit card holders owe (negative while there is debt). */
+    SYSTEM_CARD_RECEIVABLES;
 
     public static final UUID CASH_IN_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     public static final UUID FEES_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
@@ -29,4 +35,7 @@ public enum AccountType {
     public static final UUID LOAN_PRINCIPAL_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000006");
     public static final UUID INTEREST_INCOME_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000007");
     public static final UUID TAX_PAYABLE_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000008");
+    public static final UUID CARD_HOLDS_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000009");
+    public static final UUID CARD_SETTLEMENT_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000010");
+    public static final UUID CARD_RECEIVABLES_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000011");
 }

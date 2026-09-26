@@ -66,8 +66,10 @@ Guarantees enforced **by the database itself**:
 System accounts: `SYSTEM_CASH_IN` (manual cash-in), `SYSTEM_PIX_SETTLEMENT` (Pix exchanged with other
 institutions), `SYSTEM_BILL_SETTLEMENT` (bill payments awaiting settlement), `SYSTEM_YIELD` (source of the yield
 paid on balances), `SYSTEM_LOAN_PRINCIPAL` (principal owed by borrowers), `SYSTEM_INTEREST_INCOME` (interest and
-late charges earned), `SYSTEM_TAX_PAYABLE` (IOF withheld) and `SYSTEM_FEES` (revenue). Settlement, cash-in, yield
-and loan principal accounts may go negative because they offset money held for or lent to customers.
+late charges earned), `SYSTEM_TAX_PAYABLE` (IOF withheld), `SYSTEM_CARD_HOLDS` (debit card purchases awaiting
+clearing), `SYSTEM_CARD_SETTLEMENT` (owed to the card network), `SYSTEM_CARD_RECEIVABLES` (owed by credit card
+holders) and `SYSTEM_FEES` (revenue). Settlement, cash-in, yield, loan principal and card receivable accounts may go
+negative because they offset money held for or lent to customers.
 **All balances always sum to zero**, which `GET /ledger/reconciliation` verifies along with each snapshot
 against its postings.
 
@@ -255,6 +257,38 @@ to the public requires an authorized institution (e.g. an SCD) or a partner bank
   themselves (`POST /loans/{id}/installments/{n}/payment`); admins can run a collection with
   `POST /admin/loans/collections?date=`.
 
+## Cards
+
+Virtual debit and credit cards. Issuing requires a card processor (e.g. Dock, Pismo) and a network license through
+an issuing partner; the processor sits behind the `CardProcessor` interface with a simulated implementation.
+
+- **PCI-DSS scope**: card numbers and CVVs never reach the platform. The processor keeps them and returns a token;
+  only the token, last four digits, brand and expiry are stored.
+- **Issuing** (`POST /cards`): one active card of each type per account. Credit cards are for individuals with an
+  approved credit analysis (see Personal loans); the limit comes from the risk band (A: R$ 5,000, B: R$ 2,000,
+  C: R$ 800), and the customer picks a closing day from 1 to 28 (default 5). Cards can be blocked, unblocked and
+  cancelled; a credit card can only be cancelled once nothing is owed on it.
+- **Processor webhooks**, authenticated by `X-Card-Timestamp` and `X-Card-Signature` (the same HMAC scheme as the
+  Pix webhook, with its own secret):
+  - `POST /cards/webhooks/authorizations`: decides the purchase in real time and answers with an ISO 8583
+    response code: `00` approved, `51` insufficient balance or limit, `54` expired, `57` blocked card or
+    installments on debit, `14` unknown or cancelled card. Declines are recorded too. A repeated authorization id
+    gets the same answer. Each card is locked while deciding, so concurrent purchases cannot overspend.
+  - `POST /cards/webhooks/clearings`: the final amount, at most the authorized one.
+  - `POST /cards/webhooks/reversals`: cancels an approved purchase that was not cleared.
+- **Debit**: the authorization moves the amount from the wallet to `SYSTEM_CARD_HOLDS`; clearing moves it to
+  `SYSTEM_CARD_SETTLEMENT` and returns any difference to the wallet; a reversal returns it all.
+- **Credit**: the authorization only consumes the limit. Clearing debits `SYSTEM_CARD_RECEIVABLES` against
+  `SYSTEM_CARD_SETTLEMENT` and splits the purchase into up to 12 monthly installments. The available limit is the
+  limit minus pending authorizations, unbilled installments (including future ones) and what is still owed on open
+  statements.
+- **Statements**: a daily job (03:30) closes the cards whose closing day is today, gathering every charge billed up
+  to that date; the minimum payment is 15% and the due date 10 days later. If the previous statement is past due
+  and not fully paid, its remainder moves to the new one as "Previous balance" plus 9.99% of revolving interest,
+  booked in `SYSTEM_INTEREST_INCOME`, and the old statement becomes `CARRIED`. Customers pay all or part of an
+  open statement from the wallet (`Idempotency-Key`); admins can close statements for a date with
+  `POST /admin/cards/statements/close?date=`.
+
 ## Running
 
 ```bash
@@ -322,6 +356,16 @@ mvn test
 | GET | `/loans/{id}` | user | Loan details and installment status |
 | POST | `/loans/{id}/installments/{n}/payment` | user | Pay the oldest unpaid installment now |
 | POST | `/admin/loans/collections?date=` | admin | Run the installment collection for a date |
+| POST | `/cards` | user | Issue a virtual `DEBIT` or `CREDIT` card (`closingDay` for credit) |
+| GET | `/cards` | user | Own cards, with limit and available limit for credit cards |
+| GET | `/cards/{id}` | user | Card details |
+| POST | `/cards/{id}/block` | user | Temporarily block the card (`/unblock` reverts) |
+| POST | `/cards/{id}/cancel` | user | Cancel the card permanently |
+| GET | `/cards/{id}/transactions` | user | Paged purchase attempts, including declines |
+| GET | `/cards/{id}/statements` | user | Closed statements with their charges |
+| POST | `/cards/{id}/statements/{sid}/payment` | user | Pay all or part (`value`) of an open statement. Requires `Idempotency-Key` |
+| POST | `/cards/webhooks/{authorizations,clearings,reversals}` | HMAC | Card processor events |
+| POST | `/admin/cards/statements/close?date=` | admin | Close the statements of cards whose closing day is `date` |
 | GET | `/users/{id}/yield` | owner | Share of the CDI, current rate, totals and daily yield history |
 | POST | `/admin/yield/runs?date=` | admin | Process the yield of one business day. Safe to repeat |
 | POST | `/users/{id}/deposit` | admin | Manual cash-in for testing. Requires `Idempotency-Key`. Owner allowed when `ALLOW_SELF_DEPOSIT=true` (dev) |
@@ -394,6 +438,10 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
 - Loans still missing: a real bureau adapter, early repayment with the proportional interest discount required
   by consumer law, renegotiation, payroll-deductible loans and FGTS anticipation, reporting to the central bank
   credit registry (SCR), paying the withheld IOF to the government, and due dates moved to business days.
+- Cards still missing: a real processor adapter, refunds and chargebacks after clearing, late fees and IOF on
+  revolving credit, installment plans for an unpaid statement, limit changes, physical cards, wallet tokenization
+  (Apple Pay, Google Pay), antifraud scoring at authorization, and notifications for purchases and closed
+  statements.
 - Yield still missing: income tax and IOF withholding per deposit lot on redemption, investing the balances in
   real assets (CDB, government bonds) through a custodian, and daily balance snapshots so the end-of-day balance
   query does not scan the whole posting history.
