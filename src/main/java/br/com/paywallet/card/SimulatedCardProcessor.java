@@ -35,4 +35,9 @@ class SimulatedCardProcessor implements CardProcessor {
     public void updateStatus(String processorToken, Card.Status status) {
         log.info("Card {} is now {}", processorToken, status);
     }
+
+    @Override
+    public void openDispute(String processorToken, String authorizationId, long amountCents, String reason) {
+        log.info("Dispute opened for authorization {} ({}, {} cents)", authorizationId, reason, amountCents);
+    }
 }

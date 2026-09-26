@@ -76,6 +76,10 @@ public class Charge {
     @Column(name = "ledger_transaction_id")
     private UUID ledgerTransactionId;
 
+    /** In cents: wallet refunds plus Pix returns that have not failed. */
+    @Column(name = "refunded_amount", nullable = false)
+    private long refundedAmount;
+
     protected Charge() {
     }
 
@@ -116,6 +120,14 @@ public class Charge {
         this.status = Status.CANCELLED;
     }
 
+    long refundable() {
+        return status == Status.PAID ? amount - refundedAmount : 0;
+    }
+
+    void addRefund(long delta) {
+        this.refundedAmount += delta;
+    }
+
     public UUID getId() { return id; }
     public Long getMerchantId() { return merchantId; }
     public String getPublicToken() { return publicToken; }
@@ -135,4 +147,5 @@ public class Charge {
     public Long getFeeAmount() { return feeAmount; }
     public Long getNetAmount() { return netAmount; }
     public UUID getLedgerTransactionId() { return ledgerTransactionId; }
+    public long getRefundedAmount() { return refundedAmount; }
 }

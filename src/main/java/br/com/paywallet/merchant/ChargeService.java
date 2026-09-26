@@ -276,6 +276,12 @@ public class ChargeService {
                         charge.getAmount(), fee.netCents(), method, now));
     }
 
+    /** Keeps the refunded total of a charge paid by Pix in step with returns of that Pix. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordPixReturn(String endToEndId, long delta) {
+        charges.lockByEndToEndId(endToEndId).ifPresent(c -> c.addRefund(delta));
+    }
+
     @Scheduled(fixedDelay = 60_000)
     @Transactional
     public void expireOverdue() {
@@ -336,7 +342,8 @@ public class ChargeService {
                 status == Charge.Status.PENDING ? brCode(c, merchant) : null, c.getCreatedAt(), c.getExpiresAt(),
                 c.getPaidAt(), c.getPaymentMethod(),
                 c.getFeeAmount() == null ? null : Money.fromCents(c.getFeeAmount()),
-                c.getNetAmount() == null ? null : Money.fromCents(c.getNetAmount()));
+                c.getNetAmount() == null ? null : Money.fromCents(c.getNetAmount()),
+                Money.fromCents(c.getRefundedAmount()));
     }
 
     private String brCode(Charge charge, User merchant) {

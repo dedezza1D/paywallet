@@ -77,4 +77,30 @@ public final class CardDtos {
     /** Cancels an approved purchase that was never cleared. */
     public record ReversalRequest(@NotBlank @Size(max = 64) String authorizationId) {
     }
+
+    public record RefundRequest(
+            @NotBlank @Size(max = 64) String refundId,
+            @NotBlank @Size(max = 64) String authorizationId,
+            @NotNull @DecimalMin("0.01") @Digits(integer = 15, fraction = 2) BigDecimal amount) {
+    }
+
+    public record RefundResponse(String id, String authorizationId, String kind, BigDecimal amount,
+                                 Instant createdAt) {
+    }
+
+    public enum DisputeReason { NOT_RECOGNIZED, NOT_RECEIVED, DUPLICATE, WRONG_AMOUNT, CANCELLED }
+
+    public enum DisputeStatus { OPEN, WON, LOST }
+
+    public record DisputeRequest(@NotNull DisputeReason reason, @Size(max = 500) String description) {
+    }
+
+    public record DisputeResponse(UUID id, String authorizationId, DisputeReason reason, String description,
+                                  BigDecimal amount, DisputeStatus status, Instant createdAt, Instant resolvedAt) {
+    }
+
+    public record DisputeOutcomeRequest(
+            @NotBlank @Size(max = 64) String authorizationId,
+            @NotNull DisputeStatus outcome) {
+    }
 }

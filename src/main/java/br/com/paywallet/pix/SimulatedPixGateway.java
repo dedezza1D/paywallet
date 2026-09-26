@@ -9,7 +9,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Stand-in for a PSP in local environments. Every key not found locally resolves to an account at a
- * fictitious bank, except keys starting with "unknown"; payments to keys starting with "reject" are refused.
+ * fictitious bank, except keys starting with "unknown"; payments to keys starting with "reject" are refused, and
+ * so are returns whose amount ends in 99 cents.
  */
 @Component
 @ConditionalOnProperty(name = "app.pix.gateway", havingValue = "simulated", matchIfMissing = true)
@@ -33,6 +34,13 @@ class SimulatedPixGateway implements PixGateway {
     public SubmitResult submit(PixOrder order) {
         return order.key().startsWith("reject")
                 ? SubmitResult.rejected("Receiving account closed")
+                : SubmitResult.ok();
+    }
+
+    @Override
+    public SubmitResult submitReturn(ReturnOrder order) {
+        return order.amountCents() % 100 == 99
+                ? SubmitResult.rejected("Original account closed")
                 : SubmitResult.ok();
     }
 }

@@ -23,6 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 import br.com.paywallet.card.CardDtos.AuthorizationResponse;
 import br.com.paywallet.card.CardDtos.CardResponse;
 import br.com.paywallet.card.CardDtos.ClosingResult;
+import br.com.paywallet.card.CardDtos.DisputeRequest;
+import br.com.paywallet.card.CardDtos.DisputeResponse;
 import br.com.paywallet.card.CardDtos.IssueCardRequest;
 import br.com.paywallet.card.CardDtos.StatementPaymentRequest;
 import br.com.paywallet.card.CardDtos.StatementResponse;
@@ -34,10 +36,12 @@ public class CardController {
 
     private final CardService cards;
     private final CardStatementService statements;
+    private final CardRefundService refunds;
 
-    public CardController(CardService cards, CardStatementService statements) {
+    public CardController(CardService cards, CardStatementService statements, CardRefundService refunds) {
         this.cards = cards;
         this.statements = statements;
+        this.refunds = refunds;
     }
 
     @PostMapping("/cards")
@@ -74,6 +78,19 @@ public class CardController {
     public Page<AuthorizationResponse> transactions(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
                                                     @PageableDefault(size = 20) Pageable pageable) {
         return cards.transactions(userId(jwt), id, pageable);
+    }
+
+    @PostMapping("/cards/{id}/transactions/{authorizationId}/disputes")
+    public ResponseEntity<DisputeResponse> dispute(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                                   @PathVariable String authorizationId,
+                                                   @Valid @RequestBody DisputeRequest req) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(refunds.openDispute(userId(jwt), id, authorizationId, req));
+    }
+
+    @GetMapping("/cards/{id}/disputes")
+    public List<DisputeResponse> disputes(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
+        return refunds.disputes(userId(jwt), id);
     }
 
     @GetMapping("/cards/{id}/statements")

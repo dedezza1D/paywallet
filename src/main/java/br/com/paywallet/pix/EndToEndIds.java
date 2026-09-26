@@ -16,7 +16,16 @@ final class EndToEndIds {
     }
 
     static String generate(String ispb, Instant now) {
-        var id = new StringBuilder(32).append('E').append(ispb).append(TIMESTAMP.format(now));
+        return generate('E', ispb, now);
+    }
+
+    /** Return ids follow the end-to-end format with a D prefix. */
+    static String generateReturn(String ispb, Instant now) {
+        return generate('D', ispb, now);
+    }
+
+    private static String generate(char prefix, String ispb, Instant now) {
+        var id = new StringBuilder(32).append(prefix).append(ispb).append(TIMESTAMP.format(now));
         for (int i = 0; i < 11; i++) {
             id.append(ALPHABET.charAt(RANDOM.nextInt(ALPHABET.length())));
         }

@@ -35,6 +35,10 @@ interface ChargeRepository extends JpaRepository<Charge, UUID> {
     @Query("select c from Charge c where c.txid = :txid")
     Optional<Charge> lockByTxid(@Param("txid") String txid);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select c from Charge c where c.endToEndId = :endToEndId")
+    Optional<Charge> lockByEndToEndId(@Param("endToEndId") String endToEndId);
+
     @Modifying
     @Query("update Charge c set c.status = 'EXPIRED' where c.status = 'PENDING' and c.expiresAt <= :now")
     int expireOverdue(@Param("now") Instant now);
