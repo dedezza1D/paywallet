@@ -59,8 +59,8 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**",
                                 "/swagger-ui.html").permitAll()
                         .requestMatchers("/error").permitAll()
-                        // Authenticated by an HMAC signature from the PSP instead of a user token.
-                        .requestMatchers(HttpMethod.POST, "/pix/webhooks/**").permitAll()
+                        // Authenticated by an HMAC signature from the PSP or card processor instead of a user token.
+                        .requestMatchers(HttpMethod.POST, "/pix/webhooks/**", "/cards/webhooks/**").permitAll()
                         .requestMatchers("/ledger/**", "/admin/**").hasRole("ADMIN")
                         .requestMatchers("/merchant/**").hasAuthority(MERCHANT)
                         .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN")

@@ -93,6 +93,7 @@ services:
       # Development only: users may simulate deposits into their own wallet.
       ALLOW_SELF_DEPOSIT: "true"
       PIX_WEBHOOK_SECRET: dev-only-webhook-secret
+      CARD_WEBHOOK_SECRET: dev-only-card-webhook-secret
     ports:
       - "8080:8080"
 

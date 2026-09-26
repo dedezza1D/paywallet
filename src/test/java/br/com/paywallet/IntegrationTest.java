@@ -31,6 +31,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import br.com.paywallet.auth.TokenService;
 import br.com.paywallet.bill.BillGateway;
+import br.com.paywallet.card.CardProcessor;
 import br.com.paywallet.credit.CreditBureau;
 import br.com.paywallet.external.AuthorizationClient;
 import br.com.paywallet.external.NotificationClient;
@@ -80,9 +81,12 @@ public abstract class IntegrationTest {
         registry.add("app.yield.enabled", () -> "false");
         registry.add("app.credit.collection-enabled", () -> "false");
         registry.add("app.pix.webhook-secret", () -> WEBHOOK_SECRET);
+        registry.add("app.cards.webhook-secret", () -> CARD_WEBHOOK_SECRET);
+        registry.add("app.cards.statement-job-enabled", () -> "false");
     }
 
     protected static final String WEBHOOK_SECRET = "test-webhook-secret";
+    protected static final String CARD_WEBHOOK_SECRET = "test-card-webhook-secret";
     /** Every day is a business day in tests, at 0.05% per day. */
     protected static final BigDecimal TEST_CDI_DAILY_RATE = new BigDecimal("0.05");
 
@@ -92,6 +96,7 @@ public abstract class IntegrationTest {
     @MockitoBean protected BillGateway billGateway;
     @MockitoBean protected CdiRateProvider cdiRates;
     @MockitoBean protected CreditBureau creditBureau;
+    @MockitoBean protected CardProcessor cardProcessor;
 
     @Autowired protected MockMvc mvc;
     @Autowired protected UserService userService;
@@ -108,6 +113,9 @@ public abstract class IntegrationTest {
         when(pixGateway.submit(any())).thenReturn(PixGateway.SubmitResult.ok());
         when(billGateway.pay(any())).thenReturn(BillGateway.PaymentResult.ok("AUTH-TEST"));
         when(creditBureau.report(anyString())).thenReturn(new CreditBureau.BureauReport(800, false));
+        when(cardProcessor.issue(any(), anyString(), any())).thenAnswer(invocation -> new CardProcessor.IssuedCard(
+                "tok_" + UUID.randomUUID().toString().replace("-", ""), "4242", "MASTERCARD", 12,
+                LocalDate.now().getYear() + 5));
         when(cdiRates.dailyRates(any(), any())).thenAnswer(invocation -> {
             LocalDate from = invocation.getArgument(0);
             LocalDate to = invocation.getArgument(1);

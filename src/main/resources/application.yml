@@ -95,6 +95,15 @@ app:
     bcb-series-url: https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados
     max-catch-up-days: 30
     zone: America/Sao_Paulo
+  cards:
+    processor: ${CARD_PROCESSOR:simulated}
+    webhook-secret: ${CARD_WEBHOOK_SECRET:}
+    webhook-tolerance: 5m
+    revolving-monthly-percent: 9.99
+    minimum-payment-percent: 15
+    due-days-after-closing: 10
+    statement-job-enabled: ${CARD_STATEMENT_JOB_ENABLED:true}
+    zone: America/Sao_Paulo
   bill:
     gateway: ${BILL_GATEWAY:simulated}
     settlement-interval: 1s
