@@ -2,7 +2,6 @@ package br.com.paywallet.pix;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.atLeastOnce;
@@ -176,7 +175,7 @@ class PixIntegrationTest extends IntegrationTest {
     void rejectedExternalPixIsReversedAndReleasesTheLimit() throws Exception {
         var payer = newUserWithBalance("Rejected Payer", "100.00");
         when(pixGateway.lookup("closed@otherbank.com")).thenReturn(Optional.of(OTHER_BANK));
-        when(pixGateway.submit(any())).thenReturn(SubmitResult.rejected("Receiving account closed"));
+        when(pixGateway.submit(forKey("closed@otherbank.com"))).thenReturn(SubmitResult.rejected("Receiving account closed"));
 
         String body = sendPix(payer, newKey(), "{\"key\": \"closed@otherbank.com\", \"value\": 30}")
                 .andExpect(status().isAccepted())
@@ -195,7 +194,7 @@ class PixIntegrationTest extends IntegrationTest {
     void networkOutageKeepsThePixPendingUntilItCanBeSubmitted() throws Exception {
         var payer = newUserWithBalance("Outage Payer", "100.00");
         when(pixGateway.lookup("later@otherbank.com")).thenReturn(Optional.of(OTHER_BANK));
-        when(pixGateway.submit(any()))
+        when(pixGateway.submit(forKey("later@otherbank.com")))
                 .thenThrow(new ExternalServiceException("SPI unavailable", null))
                 .thenThrow(new ExternalServiceException("SPI unavailable", null))
                 .thenReturn(SubmitResult.ok());
@@ -294,6 +293,14 @@ class PixIntegrationTest extends IntegrationTest {
     }
 
     // Helpers
+
+    /**
+     * Matches only this test's payment. Earlier tests may leave Pix pending that the worker settles in the
+     * background; a catch-all stub would let them consume this test's scripted responses.
+     */
+    private static PixGateway.PixOrder forKey(String key) {
+        return argThat(order -> order != null && key.equals(order.key()));
+    }
 
     private ResultActions registerKey(UserResponse user, String type, String value) throws Exception {
         String json = value == null ? "{\"type\": \"%s\"}".formatted(type)
