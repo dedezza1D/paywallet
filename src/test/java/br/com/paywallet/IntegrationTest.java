@@ -31,6 +31,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import br.com.paywallet.auth.TokenService;
 import br.com.paywallet.bill.BillGateway;
+import br.com.paywallet.credit.CreditBureau;
 import br.com.paywallet.external.AuthorizationClient;
 import br.com.paywallet.external.NotificationClient;
 import br.com.paywallet.pix.PixGateway;
@@ -77,6 +78,7 @@ public abstract class IntegrationTest {
         registry.add("app.bill.settlement-interval", () -> "200ms");
         // The daily job must not credit yield in the middle of tests that assert exact balances.
         registry.add("app.yield.enabled", () -> "false");
+        registry.add("app.credit.collection-enabled", () -> "false");
         registry.add("app.pix.webhook-secret", () -> WEBHOOK_SECRET);
     }
 
@@ -89,6 +91,7 @@ public abstract class IntegrationTest {
     @MockitoBean protected PixGateway pixGateway;
     @MockitoBean protected BillGateway billGateway;
     @MockitoBean protected CdiRateProvider cdiRates;
+    @MockitoBean protected CreditBureau creditBureau;
 
     @Autowired protected MockMvc mvc;
     @Autowired protected UserService userService;
@@ -104,6 +107,7 @@ public abstract class IntegrationTest {
         when(notificationClient.send(anyString(), anyString())).thenReturn(true);
         when(pixGateway.submit(any())).thenReturn(PixGateway.SubmitResult.ok());
         when(billGateway.pay(any())).thenReturn(BillGateway.PaymentResult.ok("AUTH-TEST"));
+        when(creditBureau.report(anyString())).thenReturn(new CreditBureau.BureauReport(800, false));
         when(cdiRates.dailyRates(any(), any())).thenAnswer(invocation -> {
             LocalDate from = invocation.getArgument(0);
             LocalDate to = invocation.getArgument(1);
