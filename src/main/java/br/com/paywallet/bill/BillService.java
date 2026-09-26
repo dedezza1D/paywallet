@@ -26,6 +26,9 @@ import br.com.paywallet.exception.InsufficientFundsException;
 import br.com.paywallet.exception.NotFoundException;
 import br.com.paywallet.exception.TransferNotAuthorizedException;
 import br.com.paywallet.external.AuthorizationClient;
+import br.com.paywallet.fraud.Channel;
+import br.com.paywallet.fraud.FraudCheck;
+import br.com.paywallet.fraud.FraudService;
 import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.hotdata.DailyLimitService;
 import br.com.paywallet.hotdata.IdempotencyGuard;
@@ -53,6 +56,7 @@ public class BillService {
     private final UserService users;
     private final LedgerService ledger;
     private final AuthorizationClient authorizer;
+    private final FraudService fraud;
     private final IdempotencyGuard idempotency;
     private final DailyLimitService limits;
     private final BalanceCache balanceCache;
@@ -61,13 +65,15 @@ public class BillService {
     private final Clock clock;
 
     public BillService(BillGateway gateway, BillPaymentRepository payments, UserService users, LedgerService ledger,
-                       AuthorizationClient authorizer, IdempotencyGuard idempotency, DailyLimitService limits,
-                       BalanceCache balanceCache, TransactionTemplate transactions, EntityManager em, Clock clock) {
+                       AuthorizationClient authorizer, FraudService fraud, IdempotencyGuard idempotency,
+                       DailyLimitService limits, BalanceCache balanceCache, TransactionTemplate transactions,
+                       EntityManager em, Clock clock) {
         this.gateway = gateway;
         this.payments = payments;
         this.users = users;
         this.ledger = ledger;
         this.authorizer = authorizer;
+        this.fraud = fraud;
         this.idempotency = idempotency;
         this.limits = limits;
         this.balanceCache = balanceCache;
@@ -123,6 +129,8 @@ public class BillService {
             throw new InsufficientFundsException();
         }
 
+        fraud.screen(new FraudCheck(payerId, Channel.BILL, amount,
+                FraudCheck.document(bill.quote().beneficiaryDocument())));
         limits.reserve(payerId, amount);
         BillPayment payment;
         try {
