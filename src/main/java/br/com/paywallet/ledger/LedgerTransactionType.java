@@ -7,5 +7,7 @@ public enum LedgerTransactionType {
     PIX_OUT,
     PIX_OUT_REVERSAL,
     PIX_IN,
-    CHARGE_PAYMENT
+    CHARGE_PAYMENT,
+    BILL_PAYMENT,
+    BILL_PAYMENT_REVERSAL
 }

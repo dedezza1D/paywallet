@@ -64,7 +64,8 @@ Guarantees enforced **by the database itself**:
 - `CHECK (allow_negative OR balance >= 0)`: user wallets never go negative.
 
 System accounts: `SYSTEM_CASH_IN` (manual cash-in), `SYSTEM_PIX_SETTLEMENT` (Pix exchanged with other
-institutions) and `SYSTEM_FEES` (revenue). The first two go negative because they offset money held for customers.
+institutions), `SYSTEM_BILL_SETTLEMENT` (bill payments awaiting settlement) and `SYSTEM_FEES` (revenue). The
+settlement and cash-in accounts may go negative because they offset money held for customers.
 **All balances always sum to zero**, which `GET /ledger/reconciliation` verifies along with each snapshot
 against its postings.
 
@@ -179,6 +180,29 @@ credited (the money has already moved), as a plain Pix without fee.
 payment method and by day in the `America/Sao_Paulo` time zone. Merchants are notified of each payment through
 the outbox and Kafka.
 
+## Bill payments
+
+Users pay boletos with their wallet balance. The code can be typed in any form: the 47-digit digitable line of
+bank boletos, the 48-digit line of utility and tax bills (starting with 8) or the 44-digit barcode. Every check
+digit is validated (modulo 10 per field or block, modulo 11 for the general digit), so typos are caught locally.
+Bank boletos carry their due date as a day factor, which restarted at 1000 on 2025-02-22; the parser picks the
+reading closest to today.
+
+Beneficiary data, the amount due with interest, fines or discounts, the allowed amount range and the payment
+deadline come from the clearing registry (CIP/NPC), which requires a banking partner. That boundary is the
+`BillGateway` interface; `SimulatedBillGateway` stands in locally (payments whose amount ends in 99 cents are
+refused, to exercise reversals).
+
+- `POST /bills/lookup` shows what will be paid, and whether the bill is still payable.
+- `POST /bills/payments` debits the wallet against `SYSTEM_BILL_SETTLEMENT` (`BILL_PAYMENT`) and returns
+  `202 PENDING`, with the same idempotency, daily limit and authorizer as other outgoing payments. Open-amount bills
+  take a `value` within the registry range; otherwise the amount due is paid.
+- A worker submits pending payments to the partner with `SKIP LOCKED`. Accepted payments are `CONFIRMED` with the
+  bank authentication code for the receipt; rejected ones are reversed (`BILL_PAYMENT_REVERSAL`), marked `FAILED`
+  and release the daily limit. When the partner is unreachable, the payment stays pending and is retried.
+- A partial unique index allows only one pending or confirmed payment per barcode, so a bill is never paid twice
+  on this platform; a failed attempt does not block paying it again.
+
 ## Running
 
 ```bash
@@ -235,6 +259,10 @@ mvn test
 | GET | `/merchant/dashboard?from=&to=` | merchant | Sales totals by payment method and by day |
 | GET | `/pay/{token}` | public | What the payment link shows |
 | POST | `/pay/{token}` | user | Pay the charge with wallet balance. 201 paid, 200 replay, 409 paid by someone else |
+| POST | `/bills/lookup` | user | Decode a boleto and fetch beneficiary, amount due and deadline |
+| POST | `/bills/payments` | user | Pay a boleto with wallet balance. Requires `Idempotency-Key`. 202 pending |
+| GET | `/bills/payments` | user | Own bill payments |
+| GET | `/bills/payments/{id}` | user | Payment status and bank authentication code |
 | POST | `/users/{id}/deposit` | admin | Manual cash-in for testing. Requires `Idempotency-Key`. Owner allowed when `ALLOW_SELF_DEPOSIT=true` (dev) |
 | GET | `/users` | admin | List users |
 | GET | `/ledger/reconciliation` | admin | Ledger audit |
@@ -279,6 +307,10 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
 - **`Unable to establish loopback connection`** on Windows: the JDK creates a Unix domain socket in the temp
   folder, which fails in some restricted environments. Point it elsewhere with
   `mvn test "-DargLine=-Djdk.net.unixdomain.tmpdir=C:\short\path"` (and the same `-D` when running the app).
+- **`docker compose up --build` hangs with no output**: Compose delegates the build to `docker buildx bake`, which
+  has been seen to stall intermittently on Docker Desktop before printing anything. Stop it and run the command
+  again; if it keeps hanging, restart Docker Desktop, or build directly and start without building:
+  `docker build -t paywallet-app .` then `docker compose up -d --no-build`.
 - **`minio/minio` image not found**: MinIO stopped publishing images to Docker Hub, which is why local S3 uses LocalStack.
 - **Flyway checksum mismatch** after pulling changes to existing migrations: this project is pre-release and
   migrations may still be edited. Reset local data with `docker compose down -v`.
@@ -298,6 +330,9 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
   own systems (e-commerce), receivables settlement schedules and anticipation, card acquiring and POS terminals.
   Charge QR codes are static BR Codes with a txid; true dynamic Pix QR codes point to a signed payload hosted by
   the PSP.
+- Bill payments still missing: a real banking partner adapter, scheduling payments for a future date, the
+  clearing cut-off time (payments after it settle on the next business day), installment payment with a credit
+  card, and PDF receipts.
 - Pix still missing: a real PSP adapter for `PixGateway`, SMS confirmation of phone keys, dynamic QR codes
   (charges with expiry), the lower nighttime Pix limit (8 p.m. to 6 a.m.), refunds and the BCB special refund
   mechanism (MED) for fraud, and key portability and claims between institutions.

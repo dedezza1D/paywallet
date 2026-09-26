@@ -75,6 +75,9 @@ app:
     lookups-per-minute: 30
     max-keys-individual: 5
     max-keys-merchant: 20
+  bill:
+    gateway: ${BILL_GATEWAY:simulated}
+    settlement-interval: 1s
   merchant:
     wallet-fee-bps: 199
     pix-fee-bps: 99
