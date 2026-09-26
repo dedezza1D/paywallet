@@ -43,6 +43,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
     }
 
+    @ExceptionHandler(FraudDeclinedException.class)
+    ProblemDetail handleFraudDeclined(FraudDeclinedException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
     @ExceptionHandler(ExternalServiceException.class)
     ProblemDetail handleExternal(ExternalServiceException ex) {
         log.warn("External service unavailable: {}", ex.getMessage(), ex);

@@ -17,6 +17,9 @@ import br.com.paywallet.exception.ConflictException;
 import br.com.paywallet.exception.InsufficientFundsException;
 import br.com.paywallet.exception.TransferNotAuthorizedException;
 import br.com.paywallet.external.AuthorizationClient;
+import br.com.paywallet.fraud.Channel;
+import br.com.paywallet.fraud.FraudCheck;
+import br.com.paywallet.fraud.FraudService;
 import br.com.paywallet.feed.Visibility;
 import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.hotdata.DailyLimitService;
@@ -59,18 +62,20 @@ public class WalletService {
     private final UserService users;
     private final LedgerService ledger;
     private final AuthorizationClient authorizer;
+    private final FraudService fraud;
     private final IdempotencyGuard idempotency;
     private final DailyLimitService limits;
     private final BalanceCache balanceCache;
     private final OutboxWriter outbox;
     private final TransactionTemplate transactions;
 
-    public WalletService(UserService users, LedgerService ledger, AuthorizationClient authorizer,
+    public WalletService(UserService users, LedgerService ledger, AuthorizationClient authorizer, FraudService fraud,
                          IdempotencyGuard idempotency, DailyLimitService limits, BalanceCache balanceCache,
                          OutboxWriter outbox, TransactionTemplate transactions) {
         this.users = users;
         this.ledger = ledger;
         this.authorizer = authorizer;
+        this.fraud = fraud;
         this.idempotency = idempotency;
         this.limits = limits;
         this.balanceCache = balanceCache;
@@ -120,6 +125,7 @@ public class WalletService {
             throw new InsufficientFundsException();
         }
 
+        fraud.screen(new FraudCheck(payer.getId(), Channel.P2P, amount, FraudCheck.user(payee.getId())));
         limits.reserve(payer.getId(), amount);
         LedgerTransaction tx;
         try {

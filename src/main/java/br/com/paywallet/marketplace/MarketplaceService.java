@@ -24,6 +24,9 @@ import br.com.paywallet.exception.InsufficientFundsException;
 import br.com.paywallet.exception.NotFoundException;
 import br.com.paywallet.exception.TransferNotAuthorizedException;
 import br.com.paywallet.external.AuthorizationClient;
+import br.com.paywallet.fraud.Channel;
+import br.com.paywallet.fraud.FraudCheck;
+import br.com.paywallet.fraud.FraudService;
 import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.hotdata.DailyLimitService;
 import br.com.paywallet.hotdata.IdempotencyGuard;
@@ -56,6 +59,7 @@ public class MarketplaceService {
     private final UserService users;
     private final LedgerService ledger;
     private final AuthorizationClient authorizer;
+    private final FraudService fraud;
     private final IdempotencyGuard idempotency;
     private final DailyLimitService limits;
     private final BalanceCache balanceCache;
@@ -66,15 +70,16 @@ public class MarketplaceService {
     private final Clock clock;
 
     public MarketplaceService(ProductRepository products, MarketplaceOrderRepository orders, UserService users,
-                              LedgerService ledger, AuthorizationClient authorizer, IdempotencyGuard idempotency,
-                              DailyLimitService limits, BalanceCache balanceCache, VoucherCipher cipher,
-                              TransactionTemplate transactions, EntityManager em, MarketplaceProperties props,
-                              Clock clock) {
+                              LedgerService ledger, AuthorizationClient authorizer, FraudService fraud,
+                              IdempotencyGuard idempotency, DailyLimitService limits, BalanceCache balanceCache,
+                              VoucherCipher cipher, TransactionTemplate transactions, EntityManager em,
+                              MarketplaceProperties props, Clock clock) {
         this.products = products;
         this.orders = orders;
         this.users = users;
         this.ledger = ledger;
         this.authorizer = authorizer;
+        this.fraud = fraud;
         this.idempotency = idempotency;
         this.limits = limits;
         this.balanceCache = balanceCache;
@@ -134,6 +139,7 @@ public class MarketplaceService {
             throw new InsufficientFundsException();
         }
 
+        fraud.screen(new FraudCheck(userId, Channel.MARKETPLACE, amount, null));
         limits.reserve(userId, amount);
         MarketplaceOrder order;
         try {

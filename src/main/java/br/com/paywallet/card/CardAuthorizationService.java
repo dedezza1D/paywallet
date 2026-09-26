@@ -21,6 +21,9 @@ import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.exception.ConflictException;
 import br.com.paywallet.exception.InsufficientFundsException;
 import br.com.paywallet.exception.NotFoundException;
+import br.com.paywallet.fraud.Channel;
+import br.com.paywallet.fraud.FraudCheck;
+import br.com.paywallet.fraud.FraudService;
 import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.ledger.AccountType;
 import br.com.paywallet.ledger.LedgerService;
@@ -43,6 +46,7 @@ public class CardAuthorizationService {
     static final String INSUFFICIENT_FUNDS = "51";
     static final String EXPIRED_CARD = "54";
     static final String NOT_PERMITTED = "57";
+    static final String SUSPECTED_FRAUD = "59";
 
     private record Decline(String code, String reason) {
     }
@@ -52,18 +56,21 @@ public class CardAuthorizationService {
     private final CardCharges charges;
     private final LedgerService ledger;
     private final BalanceCache balanceCache;
+    private final FraudService fraud;
     private final TransactionTemplate transactions;
     private final CardProperties props;
     private final Clock clock;
 
     public CardAuthorizationService(CardRepository cards, CardAuthorizationRepository authorizations,
                                     CardCharges charges, LedgerService ledger, BalanceCache balanceCache,
-                                    TransactionTemplate transactions, CardProperties props, Clock clock) {
+                                    FraudService fraud, TransactionTemplate transactions, CardProperties props,
+                                    Clock clock) {
         this.cards = cards;
         this.authorizations = authorizations;
         this.charges = charges;
         this.ledger = ledger;
         this.balanceCache = balanceCache;
+        this.fraud = fraud;
         this.transactions = transactions;
         this.props = props;
         this.clock = clock;
@@ -91,6 +98,10 @@ public class CardAuthorizationService {
                 if (decline == null && card.getType() == Card.Type.CREDIT
                         && amount > card.getCreditLimit() - charges.used(card.getId())) {
                     decline = new Decline(INSUFFICIENT_FUNDS, "Insufficient credit limit");
+                }
+                if (decline == null && fraud.assess(new FraudCheck(card.getUserId(), Channel.CARD, amount,
+                        FraudCheck.merchant(req.merchantName()))).declined()) {
+                    decline = new Decline(SUSPECTED_FRAUD, "Suspected fraud");
                 }
                 Instant now = clock.instant();
                 if (decline != null) {

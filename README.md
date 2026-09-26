@@ -273,8 +273,9 @@ an issuing partner; the processor sits behind the `CardProcessor` interface with
   Pix webhook, with its own secret):
   - `POST /cards/webhooks/authorizations`: decides the purchase in real time and answers with an ISO 8583
     response code: `00` approved, `51` insufficient balance or limit, `54` expired, `57` blocked card or
-    installments on debit, `14` unknown or cancelled card. Declines are recorded too. A repeated authorization id
-    gets the same answer. Each card is locked while deciding, so concurrent purchases cannot overspend.
+    installments on debit, `14` unknown or cancelled card, `59` suspected fraud (see Antifraud). Declines are
+    recorded too. A repeated authorization id gets the same answer. Each card is locked while deciding, so
+    concurrent purchases cannot overspend.
   - `POST /cards/webhooks/clearings`: the final amount, at most the authorized one.
   - `POST /cards/webhooks/reversals`: cancels an approved purchase that was not cleared.
 - **Debit**: the authorization moves the amount from the wallet to `SYSTEM_CARD_HOLDS`; clearing moves it to
@@ -309,6 +310,27 @@ to the customer as cashback.
 - **Gift card codes** work like cash, so they are encrypted at rest with AES-256-GCM (`VOUCHER_KEY`) and shown only
   in `GET /marketplace/orders/{id}` to the buyer, never in lists, events or notifications.
 - **Cashback** (`GET /cashback`): total earned and this month's total.
+
+## Antifraud
+
+Every outflow (P2P, Pix, charge payments, bills, marketplace and card authorizations) is screened by a rule engine
+before any money moves or any limit is reserved. Each triggered rule adds points; 50 or more opens an alert for an
+analyst while the payment goes through (`REVIEW`), 80 or more refuses it (`DECLINE`, 403 or card code `59`).
+
+| Rule | Points | Triggers when |
+|---|---|---|
+| `ACCOUNT_BLOCKED` | 100 | An analyst froze the account's outflows |
+| `WATCHLISTED_COUNTERPARTY` | 100 | The receiver is on the watchlist (`user:`, `pix:`, `doc:` or `merchant:` identifier) |
+| `CARD_TESTING` | 50 | 3 or more declined card authorizations in 10 minutes |
+| `VELOCITY` | 40 | More than 5 outflow attempts in 10 minutes (sliding window in Redis, declined attempts included) |
+| `AMOUNT_ANOMALY` | 30 | At least R$ 500 and over 5 times the average of the last 90 days (with 3 or more payments) |
+| `NEW_COUNTERPARTY` | 25 | R$ 1,000 or more to someone never paid before |
+| `NEW_ACCOUNT` | 20 | R$ 500 or more from an account opened less than 7 days ago |
+| `NIGHTTIME` | 15 | R$ 1,000 or more between 10 p.m. and 6 a.m. |
+
+Thresholds live in `app.fraud`. Customers only see a generic message, so the rules cannot be probed. Analysts work
+the alert queue in `/admin/fraud`: dismissing an alert, or confirming fraud, which freezes the customer's outflows
+(money can still come in) and can add the receiver to the watchlist. The velocity rule fails open if Redis is down.
 
 ## Running
 
@@ -392,6 +414,10 @@ mvn test
 | GET | `/marketplace/orders` | user | Own orders, paged |
 | GET | `/marketplace/orders/{id}` | user | Order status; includes the gift card code once delivered |
 | GET | `/cashback` | user | Cashback earned in total and this month |
+| GET | `/admin/fraud/alerts?status=&userId=` | admin | Risk alerts, newest first |
+| POST | `/admin/fraud/alerts/{id}/resolution` | admin | Dismiss or confirm fraud (`blockUser`, `watchlistCounterparty`) |
+| POST | `/admin/fraud/blocked-users/{userId}` | admin | Freeze a customer's outflows (`DELETE` unfreezes, `GET` shows the block) |
+| GET | `/admin/fraud/watchlist` | admin | Watchlisted receivers (`POST` adds, `DELETE ?value=` removes) |
 | GET | `/users/{id}/yield` | owner | Share of the CDI, current rate, totals and daily yield history |
 | POST | `/admin/yield/runs?date=` | admin | Process the yield of one business day. Safe to repeat |
 | POST | `/users/{id}/deposit` | admin | Manual cash-in for testing. Requires `Idempotency-Key`. Owner allowed when `ALLOW_SELF_DEPOSIT=true` (dev) |
@@ -424,7 +450,7 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
 | 200 + `Idempotent-Replayed` | Same `Idempotency-Key` repeated: original result, no money moved |
 | 400 | Invalid payload or missing/invalid `Idempotency-Key` |
 | 401 | Missing, invalid or expired token; wrong credentials; invalid refresh token |
-| 403 | Accessing another user's resources, missing role, or transfer denied by the authorizer |
+| 403 | Accessing another user's resources, missing role, or payment denied by the authorizer or the risk analysis |
 | 404 | User or document not found |
 | 409 | Same `Idempotency-Key` still in progress, or duplicate record |
 | 422 | Business rule violated (funds, daily limit, merchant sending, key reused with another payload...) |
@@ -466,11 +492,14 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
   credit registry (SCR), paying the withheld IOF to the government, and due dates moved to business days.
 - Cards still missing: a real processor adapter, refunds and chargebacks after clearing, late fees and IOF on
   revolving credit, installment plans for an unpaid statement, limit changes, physical cards, wallet tokenization
-  (Apple Pay, Google Pay), antifraud scoring at authorization, and notifications for purchases and closed
+  (Apple Pay, Google Pay), 3-D Secure for online purchases, and notifications for purchases and closed
   statements.
 - Marketplace still missing: a real aggregator adapter, catalog management by admins, cashback campaigns with
   expiry or caps, cashback on merchant payments, redeeming cashback as a separate balance, and refunds of delivered
   products.
+- Antifraud still missing: device and IP signals (fingerprint, geolocation, emulators), a machine learning score
+  trained on confirmed cases, step-up authentication instead of a plain decline for medium risk, sharing reports
+  through the central bank fraud database (DICT marks), and rule management without redeploying.
 - Yield still missing: income tax and IOF withholding per deposit lot on redemption, investing the balances in
   real assets (CDB, government bonds) through a custodian, and daily balance snapshots so the end-of-day balance
   query does not scan the whole posting history.

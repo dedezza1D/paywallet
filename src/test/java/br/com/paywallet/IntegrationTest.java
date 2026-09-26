@@ -85,6 +85,9 @@ public abstract class IntegrationTest {
         registry.add("app.pix.webhook-secret", () -> WEBHOOK_SECRET);
         registry.add("app.cards.webhook-secret", () -> CARD_WEBHOOK_SECRET);
         registry.add("app.cards.statement-job-enabled", () -> "false");
+        // Same start and end hour: the nighttime rule would make results depend on when tests run.
+        registry.add("app.fraud.night-start-hour", () -> "0");
+        registry.add("app.fraud.night-end-hour", () -> "0");
     }
 
     protected static final String WEBHOOK_SECRET = "test-webhook-secret";
