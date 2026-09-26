@@ -153,6 +153,32 @@ written in one transaction.
 optional amount, description and txid, closed by a CRC16. Payers can pay with the BR Code instead of the key;
 when the code carries an amount, it is enforced.
 
+## Merchants
+
+Merchants (CNPJ users) create **charges** under `/merchant/**`, an area restricted to them through the
+`user_type` token claim. A charge has an amount, optional description, an optional order `reference` (repeating
+it returns the existing charge instead of creating another) and a validity of 30 minutes by default, 24 hours at
+most. The response carries:
+
+- a **payment link** (`/pay/{token}`) with an unguessable token. Anyone can open it to see the merchant, amount and
+  status; a logged-in user pays it with their wallet balance;
+- a **BR Code** with the fixed amount and the charge `txid`, when the merchant has a Pix key. A Pix carrying that
+  txid, from a user of this institution or from another bank through the webhook, settles the charge.
+
+**MDR.** The payer pays the full amount; one ledger movement with three legs credits the merchant's net amount
+and the platform fee to `SYSTEM_FEES`. Defaults are 1.99% for wallet balance and 0.99% for Pix
+(`app.merchant.*-fee-bps`), rounded half up to the cent, and the rate applied is stored on each charge for auditing.
+
+**Guarantees.** A charge is paid at most once: its row is locked during payment and its id is the ledger
+idempotency key, so concurrent payers produce exactly one payment. The same payer retrying gets the original
+receipt; anyone else gets 409. Expired and cancelled charges are refused; a job marks overdue charges as expired
+every minute. A Pix from another bank that carries the txid of a charge that can no longer be paid is still
+credited (the money has already moved), as a plain Pix without fee.
+
+**Dashboard.** `GET /merchant/dashboard?from=&to=` returns count, gross, fees and net for paid charges, split by
+payment method and by day in the `America/Sao_Paulo` time zone. Merchants are notified of each payment through
+the outbox and Kafka.
+
 ## Running
 
 ```bash
@@ -202,6 +228,13 @@ mvn test
 | POST | `/pix/payments` | user | Send a Pix by key or BR Code. Requires `Idempotency-Key`. 201 settled, 202 pending |
 | GET | `/pix/payments/{endToEndId}` | payer or payee | Pix status |
 | POST | `/pix/webhooks/incoming` | HMAC | Incoming Pix notification from the PSP |
+| POST | `/merchant/charges` | merchant | Create a charge. 201 new, 200 when the `reference` already exists |
+| GET | `/merchant/charges?status=` | merchant | List own charges |
+| GET | `/merchant/charges/{id}` | merchant | Charge details, including fee and net once paid |
+| POST | `/merchant/charges/{id}/cancel` | merchant | Cancel a pending charge |
+| GET | `/merchant/dashboard?from=&to=` | merchant | Sales totals by payment method and by day |
+| GET | `/pay/{token}` | public | What the payment link shows |
+| POST | `/pay/{token}` | user | Pay the charge with wallet balance. 201 paid, 200 replay, 409 paid by someone else |
 | POST | `/users/{id}/deposit` | admin | Manual cash-in for testing. Requires `Idempotency-Key`. Owner allowed when `ALLOW_SELF_DEPOSIT=true` (dev) |
 | GET | `/users` | admin | List users |
 | GET | `/ledger/reconciliation` | admin | Ledger audit |
@@ -261,6 +294,10 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
 - The cached balance may be up to 30 s stale in a rare read/write race; it never affects decisions.
 - The daily limit lives only in Redis; if Redis loses data, the day's counter resets.
 - CPF/CNPJ check digits are not validated.
+- Merchants still missing: MDR negotiated per merchant, refunds of paid charges, webhooks notifying the merchant's
+  own systems (e-commerce), receivables settlement schedules and anticipation, card acquiring and POS terminals.
+  Charge QR codes are static BR Codes with a txid; true dynamic Pix QR codes point to a signed payload hosted by
+  the PSP.
 - Pix still missing: a real PSP adapter for `PixGateway`, SMS confirmation of phone keys, dynamic QR codes
   (charges with expiry), the lower nighttime Pix limit (8 p.m. to 6 a.m.), refunds and the BCB special refund
   mechanism (MED) for fraud, and key portability and claims between institutions.

@@ -21,6 +21,7 @@ import br.com.paywallet.user.User;
 public class TokenService {
 
     public static final String ROLES_CLAIM = "roles";
+    public static final String USER_TYPE_CLAIM = "user_type";
 
     private final JwtEncoder encoder;
     private final SecurityProperties props;
@@ -48,7 +49,7 @@ public class TokenService {
                 .issuedAt(now)
                 .expiresAt(expiresAt)
                 .claim(ROLES_CLAIM, List.of(user.getRole().name()))
-                .claim("user_type", user.getType().name())
+                .claim(USER_TYPE_CLAIM, user.getType().name())
                 .build();
         var header = JwsHeader.with(SignatureAlgorithm.RS256).keyId(keyId).build();
         String value = encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();

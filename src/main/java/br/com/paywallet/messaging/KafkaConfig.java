@@ -1,9 +1,13 @@
 package br.com.paywallet.messaging;
 
+import java.util.List;
+import java.util.stream.Stream;
+
 import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
@@ -14,28 +18,22 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 @Configuration
 public class KafkaConfig {
 
-    /** Partitions allow parallel consumers; messages are keyed by payer, so each user's events stay ordered. */
+    /** Partitions allow parallel consumers; messages are keyed by user, so each user's events stay ordered. */
     private static final int PARTITIONS = 3;
 
-    @Bean
-    NewTopic transfersCompletedTopic() {
-        return TopicBuilder.name(Topics.TRANSFERS_COMPLETED).partitions(PARTITIONS).build();
-    }
+    private static final List<String> TOPICS =
+            List.of(Topics.TRANSFERS_COMPLETED, Topics.PIX_RECEIVED, Topics.CHARGES_PAID);
 
-    /** The recoverer writes to the same partition number, so the DLT needs at least as many partitions. */
+    /**
+     * Each topic gets a "-dlt" companion. The recoverer writes to the same partition number, so the DLT needs at
+     * least as many partitions as its topic.
+     */
     @Bean
-    NewTopic transfersCompletedDlt() {
-        return TopicBuilder.name(Topics.TRANSFERS_COMPLETED + "-dlt").partitions(PARTITIONS).build();
-    }
-
-    @Bean
-    NewTopic pixReceivedTopic() {
-        return TopicBuilder.name(Topics.PIX_RECEIVED).partitions(PARTITIONS).build();
-    }
-
-    @Bean
-    NewTopic pixReceivedDlt() {
-        return TopicBuilder.name(Topics.PIX_RECEIVED + "-dlt").partitions(PARTITIONS).build();
+    KafkaAdmin.NewTopics topics() {
+        return new KafkaAdmin.NewTopics(TOPICS.stream()
+                .flatMap(topic -> Stream.of(topic, topic + "-dlt"))
+                .map(name -> TopicBuilder.name(name).partitions(PARTITIONS).build())
+                .toArray(NewTopic[]::new));
     }
 
     /**

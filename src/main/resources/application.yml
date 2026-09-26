@@ -75,6 +75,13 @@ app:
     lookups-per-minute: 30
     max-keys-individual: 5
     max-keys-merchant: 20
+  merchant:
+    wallet-fee-bps: 199
+    pix-fee-bps: 99
+    payment-link-base-url: ${PAYMENT_LINK_BASE_URL:http://localhost:8080/pay/}
+    default-charge-ttl: 30m
+    max-charge-ttl: 24h
+    zone: America/Sao_Paulo
   limits:
     daily-transfer: ${DAILY_TRANSFER_LIMIT:5000.00}
     zone: America/Sao_Paulo

@@ -1,6 +1,8 @@
 package br.com.paywallet.auth;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.function.Supplier;
 
 import org.springframework.context.annotation.Bean;
@@ -16,6 +18,8 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
@@ -37,6 +41,7 @@ import jakarta.servlet.http.HttpServletResponse;
 public class SecurityConfig {
 
     private static final String ADMIN = "ROLE_ADMIN";
+    private static final String MERCHANT = "TYPE_MERCHANT";
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityProperties props,
@@ -50,13 +55,14 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/users").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/refresh", "/auth/logout").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json", "/feed").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json", "/feed", "/pay/*").permitAll()
                         .requestMatchers("/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**",
                                 "/swagger-ui.html").permitAll()
                         .requestMatchers("/error").permitAll()
                         // Authenticated by an HMAC signature from the PSP instead of a user token.
                         .requestMatchers(HttpMethod.POST, "/pix/webhooks/**").permitAll()
                         .requestMatchers("/ledger/**").hasRole("ADMIN")
+                        .requestMatchers("/merchant/**").hasAuthority(MERCHANT)
                         .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN")
                         // In production money comes in through Pix/boleto; deposits here are admin-only (self in dev).
                         .requestMatchers(HttpMethod.POST, "/users/{id}/deposit")
@@ -74,13 +80,23 @@ public class SecurityConfig {
         return http.build();
     }
 
-    /** Maps the "roles" claim to ROLE_* authorities; the principal name is the "sub" claim (user id). */
+    /**
+     * Maps the "roles" claim to ROLE_* authorities and "user_type" to TYPE_*; the principal name is the "sub"
+     * claim (user id).
+     */
     private static JwtAuthenticationConverter jwtAuthenticationConverter() {
-        var authorities = new JwtGrantedAuthoritiesConverter();
-        authorities.setAuthoritiesClaimName(TokenService.ROLES_CLAIM);
-        authorities.setAuthorityPrefix("ROLE_");
+        var roles = new JwtGrantedAuthoritiesConverter();
+        roles.setAuthoritiesClaimName(TokenService.ROLES_CLAIM);
+        roles.setAuthorityPrefix("ROLE_");
         var converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(authorities);
+        converter.setJwtGrantedAuthoritiesConverter(jwt -> {
+            Collection<GrantedAuthority> authorities = new ArrayList<>(roles.convert(jwt));
+            String userType = jwt.getClaimAsString(TokenService.USER_TYPE_CLAIM);
+            if (userType != null) {
+                authorities.add(new SimpleGrantedAuthority("TYPE_" + userType));
+            }
+            return authorities;
+        });
         return converter;
     }
 
