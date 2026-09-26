@@ -29,7 +29,9 @@ public enum AccountType {
     /** Marketplace purchases owed to product providers, net of the platform commission. */
     SYSTEM_MARKETPLACE_SETTLEMENT,
     /** Cashback paid to customers, a marketing expense (negative as cashback accumulates). */
-    SYSTEM_CASHBACK;
+    SYSTEM_CASHBACK,
+    /** Money frozen in a receiver's wallet while a Pix fraud claim (MED) is analyzed. */
+    SYSTEM_PIX_MED_HOLDS;
 
     public static final UUID CASH_IN_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     public static final UUID FEES_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
@@ -44,4 +46,5 @@ public enum AccountType {
     public static final UUID CARD_RECEIVABLES_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000011");
     public static final UUID MARKETPLACE_SETTLEMENT_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000012");
     public static final UUID CASHBACK_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000013");
+    public static final UUID PIX_MED_HOLDS_ACCOUNT_ID = UUID.fromString("00000000-0000-0000-0000-000000000014");
 }

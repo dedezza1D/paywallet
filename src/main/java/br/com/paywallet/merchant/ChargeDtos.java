@@ -30,7 +30,11 @@ public final class ChargeDtos {
 
     public record ChargeResponse(UUID id, Charge.Status status, BigDecimal value, String description, String reference,
                                  String txid, String paymentLink, String brCode, Instant createdAt, Instant expiresAt,
-                                 Instant paidAt, PaymentMethod paymentMethod, BigDecimal fee, BigDecimal net) {
+                                 Instant paidAt, PaymentMethod paymentMethod, BigDecimal fee, BigDecimal net,
+                                 BigDecimal refunded) {
+    }
+
+    public record RefundRequest(@DecimalMin("0.01") @Digits(integer = 15, fraction = 2) BigDecimal value) {
     }
 
     /** What anyone holding the payment link may see. */

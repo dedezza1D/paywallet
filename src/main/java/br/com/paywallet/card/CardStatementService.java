@@ -111,7 +111,8 @@ public class CardStatementService {
             carried++;
         }
         long total = charges.unbilledUpTo(card.getId(), date);
-        if (total == 0) {
+        // Refund credits larger than the charges stay unbilled and lower the next statement instead.
+        if (total <= 0) {
             return new Outcome(0, carried);
         }
         long minimum = BigDecimal.valueOf(total).multiply(props.minimumPaymentPercent())

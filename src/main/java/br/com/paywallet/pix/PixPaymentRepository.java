@@ -19,6 +19,10 @@ interface PixPaymentRepository extends JpaRepository<PixPayment, UUID> {
 
     Optional<PixPayment> findByIdempotencyKey(String idempotencyKey);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from PixPayment p where p.endToEndId = :endToEndId")
+    Optional<PixPayment> lockByEndToEndId(String endToEndId);
+
     /** Lock timeout -2 is Hibernate's SKIP LOCKED: concurrent workers never pick the same payment. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))

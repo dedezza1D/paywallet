@@ -68,9 +68,10 @@ institutions), `SYSTEM_BILL_SETTLEMENT` (bill payments awaiting settlement), `SY
 paid on balances), `SYSTEM_LOAN_PRINCIPAL` (principal owed by borrowers), `SYSTEM_INTEREST_INCOME` (interest and
 late charges earned), `SYSTEM_TAX_PAYABLE` (IOF withheld), `SYSTEM_CARD_HOLDS` (debit card purchases awaiting
 clearing), `SYSTEM_CARD_SETTLEMENT` (owed to the card network), `SYSTEM_CARD_RECEIVABLES` (owed by credit card
-holders), `SYSTEM_MARKETPLACE_SETTLEMENT` (owed to product providers), `SYSTEM_CASHBACK` (cashback paid out) and
-`SYSTEM_FEES` (revenue). Settlement, cash-in, yield, loan principal, card receivable and cashback accounts may go
-negative because they offset money held for, lent or given to customers.
+holders), `SYSTEM_MARKETPLACE_SETTLEMENT` (owed to product providers), `SYSTEM_CASHBACK` (cashback paid out),
+`SYSTEM_PIX_MED_HOLDS` (money frozen by Pix fraud claims) and `SYSTEM_FEES` (revenue). Settlement, cash-in,
+yield, loan principal, card receivable and cashback accounts may go negative because they offset money held for,
+lent or given to customers.
 **All balances always sum to zero**, which `GET /ledger/reconciliation` verifies along with each snapshot
 against its postings.
 
@@ -332,6 +333,33 @@ Thresholds live in `app.fraud`. Customers only see a generic message, so the rul
 the alert queue in `/admin/fraud`: dismissing an alert, or confirming fraud, which freezes the customer's outflows
 (money can still come in) and can add the receiver to the watchlist. The velocity rule fails open if Redis is down.
 
+## Refunds, returns and chargebacks
+
+- **Pix returns** (`POST /pix/payments/{endToEndId}/returns`, `Idempotency-Key`): the receiver sends back part or
+  all of a Pix within 90 days, never more than was received. Between customers of this institution the return
+  settles at once; to another institution the wallet is debited into `SYSTEM_PIX_SETTLEMENT`, a worker submits the
+  return through the PSP and a refused return gives the money back. Return ids follow the end-to-end format with a
+  `D` prefix and carry a BCB reason code (`MD06` customer request by default, `BE08`, `FR01`, `SL02`). Returns are
+  not screened by the antifraud engine: sending money back to its origin is how fraud is undone, even from a
+  frozen account.
+- **Pix fraud claims (MED)**: the payer of a Pix between customers of this institution reports it as fraud within
+  80 days (`POST /pix/payments/{endToEndId}/fraud-claims`). Whatever is still in the receiver's wallet, up to the
+  amount not yet returned, is frozen in `SYSTEM_PIX_MED_HOLDS` and the receiver cannot return that Pix meanwhile.
+  An analyst accepts the claim, returning the frozen money to the payer as an `FR01` return and freezing the
+  receiver's outflows unless told otherwise, or rejects it, releasing the money
+  (`POST /admin/pix/fraud-claims/{id}/resolution`).
+- **Charge refunds** (`POST /merchant/charges/{id}/refunds`, `Idempotency-Key`): total or partial, from the
+  merchant's wallet. The MDR is kept, as card acquirers do. Charges paid by wallet go straight back to the payer;
+  charges paid by Pix become a Pix return, which also reaches payers at other institutions. The charge shows the
+  refunded total.
+- **Card refunds and chargebacks**: the processor reports merchant refunds of cleared purchases
+  (`POST /cards/webhooks/refunds`, idempotent by refund id). Card holders dispute cleared purchases
+  (`POST /cards/{id}/transactions/{authorizationId}/disputes`); the network's decision arrives on
+  `POST /cards/webhooks/disputes` and a won dispute is paid as a chargeback. Debit card money returns to the
+  wallet from `SYSTEM_CARD_SETTLEMENT`; on credit cards it becomes a negative charge that lowers the next statement
+  (a statement is not closed while credits exceed charges). Refunds and chargebacks together never exceed the
+  cleared amount.
+
 ## Running
 
 ```bash
@@ -418,6 +446,16 @@ mvn test
 | POST | `/admin/fraud/alerts/{id}/resolution` | admin | Dismiss or confirm fraud (`blockUser`, `watchlistCounterparty`) |
 | POST | `/admin/fraud/blocked-users/{userId}` | admin | Freeze a customer's outflows (`DELETE` unfreezes, `GET` shows the block) |
 | GET | `/admin/fraud/watchlist` | admin | Watchlisted receivers (`POST` adds, `DELETE ?value=` removes) |
+| POST | `/pix/payments/{endToEndId}/returns` | receiver | Return part or all of a received Pix (`value`, `reason`). Requires `Idempotency-Key` |
+| GET | `/pix/payments/{endToEndId}/returns` | payer or receiver | Returns of a Pix |
+| POST | `/pix/payments/{endToEndId}/fraud-claims` | payer | Report a Pix as fraud (MED), freezing the money still with the receiver |
+| GET | `/pix/fraud-claims` | user | Own fraud claims |
+| GET | `/admin/pix/fraud-claims?status=` | admin | Fraud claims to analyze |
+| POST | `/admin/pix/fraud-claims/{id}/resolution` | admin | Accept (return the money) or reject (release it) a claim |
+| POST | `/merchant/charges/{id}/refunds` | merchant | Refund part or all of a paid charge (`value`). Requires `Idempotency-Key` |
+| POST | `/cards/{id}/transactions/{authorizationId}/disputes` | user | Dispute a cleared purchase (`reason`, `description`) |
+| GET | `/cards/{id}/disputes` | user | Disputes of a card and their outcome |
+| POST | `/cards/webhooks/{refunds,disputes}` | HMAC | Merchant refunds and dispute outcomes from the processor |
 | GET | `/users/{id}/yield` | owner | Share of the CDI, current rate, totals and daily yield history |
 | POST | `/admin/yield/runs?date=` | admin | Process the yield of one business day. Safe to repeat |
 | POST | `/users/{id}/deposit` | admin | Manual cash-in for testing. Requires `Idempotency-Key`. Owner allowed when `ALLOW_SELF_DEPOSIT=true` (dev) |
@@ -483,14 +521,13 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
 - The cached balance may be up to 30 s stale in a rare read/write race; it never affects decisions.
 - The daily limit lives only in Redis; if Redis loses data, the day's counter resets.
 - CPF/CNPJ check digits are not validated.
-- Merchants still missing: MDR negotiated per merchant, refunds of paid charges, webhooks notifying the merchant's
-  own systems (e-commerce), receivables settlement schedules and anticipation, card acquiring and POS terminals.
-  Charge QR codes are static BR Codes with a txid; true dynamic Pix QR codes point to a signed payload hosted by
-  the PSP.
+- Merchants still missing: MDR negotiated per merchant, webhooks notifying the merchant's own systems
+  (e-commerce), receivables settlement schedules and anticipation, card acquiring and POS terminals. Charge QR codes
+  are static BR Codes with a txid; true dynamic Pix QR codes point to a signed payload hosted by the PSP.
 - Loans still missing: a real bureau adapter, early repayment with the proportional interest discount required
   by consumer law, renegotiation, payroll-deductible loans and FGTS anticipation, reporting to the central bank
   credit registry (SCR), paying the withheld IOF to the government, and due dates moved to business days.
-- Cards still missing: a real processor adapter, refunds and chargebacks after clearing, late fees and IOF on
+- Cards still missing: a real processor adapter, provisional credit while a dispute is open, late fees and IOF on
   revolving credit, installment plans for an unpaid statement, limit changes, physical cards, wallet tokenization
   (Apple Pay, Google Pay), 3-D Secure for online purchases, and notifications for purchases and closed
   statements.
@@ -507,5 +544,5 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
   clearing cut-off time (payments after it settle on the next business day), installment payment with a credit
   card, and PDF receipts.
 - Pix still missing: a real PSP adapter for `PixGateway`, SMS confirmation of phone keys, dynamic QR codes
-  (charges with expiry), the lower nighttime Pix limit (8 p.m. to 6 a.m.), refunds and the BCB special refund
-  mechanism (MED) for fraud, and key portability and claims between institutions.
+  (charges with expiry), the lower nighttime Pix limit (8 p.m. to 6 a.m.), MED for Pix exchanged with other
+  institutions (through DICT infraction reports), and key portability and claims between institutions.

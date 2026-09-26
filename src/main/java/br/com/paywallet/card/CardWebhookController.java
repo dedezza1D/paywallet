@@ -17,6 +17,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import br.com.paywallet.card.CardDtos.AuthorizationRequest;
 import br.com.paywallet.card.CardDtos.ClearingRequest;
+import br.com.paywallet.card.CardDtos.DisputeOutcomeRequest;
+import br.com.paywallet.card.CardDtos.RefundRequest;
 import br.com.paywallet.card.CardDtos.ReversalRequest;
 import br.com.paywallet.external.HmacSignatures;
 import jakarta.validation.Validator;
@@ -32,14 +34,16 @@ public class CardWebhookController {
     private static final String SIGNATURE_HEADER = "X-Card-Signature";
 
     private final CardAuthorizationService authorizations;
+    private final CardRefundService refunds;
     private final CardProperties props;
     private final ObjectMapper objectMapper;
     private final Validator validator;
     private final Clock clock;
 
-    public CardWebhookController(CardAuthorizationService authorizations, CardProperties props,
-                                 ObjectMapper objectMapper, Validator validator, Clock clock) {
+    public CardWebhookController(CardAuthorizationService authorizations, CardRefundService refunds,
+                                 CardProperties props, ObjectMapper objectMapper, Validator validator, Clock clock) {
         this.authorizations = authorizations;
+        this.refunds = refunds;
         this.props = props;
         this.objectMapper = objectMapper;
         this.validator = validator;
@@ -65,6 +69,20 @@ public class CardWebhookController {
                                      @RequestHeader(value = SIGNATURE_HEADER, required = false) String signature,
                                      @RequestBody String body) {
         return handle(timestamp, signature, body, ReversalRequest.class, authorizations::reverse);
+    }
+
+    @PostMapping("/cards/webhooks/refunds")
+    public ResponseEntity<?> refund(@RequestHeader(value = TIMESTAMP_HEADER, required = false) String timestamp,
+                                    @RequestHeader(value = SIGNATURE_HEADER, required = false) String signature,
+                                    @RequestBody String body) {
+        return handle(timestamp, signature, body, RefundRequest.class, refunds::refund);
+    }
+
+    @PostMapping("/cards/webhooks/disputes")
+    public ResponseEntity<?> dispute(@RequestHeader(value = TIMESTAMP_HEADER, required = false) String timestamp,
+                                     @RequestHeader(value = SIGNATURE_HEADER, required = false) String signature,
+                                     @RequestBody String body) {
+        return handle(timestamp, signature, body, DisputeOutcomeRequest.class, refunds::resolveDispute);
     }
 
     private <T> ResponseEntity<?> handle(String timestamp, String signature, String body, Class<T> type,

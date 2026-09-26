@@ -118,6 +118,7 @@ public abstract class IntegrationTest {
         when(authorizationClient.isAuthorized()).thenReturn(true);
         when(notificationClient.send(anyString(), anyString())).thenReturn(true);
         when(pixGateway.submit(any())).thenReturn(PixGateway.SubmitResult.ok());
+        when(pixGateway.submitReturn(any())).thenReturn(PixGateway.SubmitResult.ok());
         when(billGateway.pay(any())).thenReturn(BillGateway.PaymentResult.ok("AUTH-TEST"));
         when(marketplaceProvider.fulfill(any())).thenAnswer(invocation -> MarketplaceProvider.FulfillmentResult.ok(
                 invocation.<MarketplaceProvider.FulfillmentOrder>getArgument(0).phoneNumber() == null ? GIFT_CODE : null,

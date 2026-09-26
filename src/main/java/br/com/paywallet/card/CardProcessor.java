@@ -10,6 +10,9 @@ public interface CardProcessor {
 
     void updateStatus(String processorToken, Card.Status status);
 
+    /** Starts a chargeback with the card network; the outcome arrives later on the disputes webhook. */
+    void openDispute(String processorToken, String authorizationId, long amountCents, String reason);
+
     /** Everything the platform may keep about a card: never the full number or the CVV. */
     record IssuedCard(String processorToken, String last4, String brand, int expMonth, int expYear) {
     }

@@ -16,24 +16,30 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.com.paywallet.ledger.Money;
 import br.com.paywallet.merchant.ChargeDtos.ChargeResponse;
 import br.com.paywallet.merchant.ChargeDtos.CreateChargeRequest;
 import br.com.paywallet.merchant.ChargeDtos.Dashboard;
+import br.com.paywallet.merchant.ChargeDtos.RefundRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 
 @RestController
 @RequestMapping("/merchant")
 public class MerchantController {
 
     private final ChargeService charges;
+    private final ChargeRefundService refunds;
     private final MerchantDashboardService dashboard;
 
-    public MerchantController(ChargeService charges, MerchantDashboardService dashboard) {
+    public MerchantController(ChargeService charges, ChargeRefundService refunds, MerchantDashboardService dashboard) {
         this.charges = charges;
+        this.refunds = refunds;
         this.dashboard = dashboard;
     }
 
@@ -61,6 +67,19 @@ public class MerchantController {
     @PostMapping("/charges/{id}/cancel")
     public ChargeResponse cancel(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id) {
         return charges.cancel(merchantId(jwt), id);
+    }
+
+    @PostMapping("/charges/{id}/refunds")
+    public ResponseEntity<ChargeResponse> refund(
+            @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+            @RequestHeader("Idempotency-Key") @Pattern(regexp = "[A-Za-z0-9_-]{8,100}") String idempotencyKey,
+            @Valid @RequestBody(required = false) RefundRequest req) {
+        Long value = req == null || req.value() == null ? null : Money.toCents(req.value());
+        var result = refunds.refund(merchantId(jwt), id, value, idempotencyKey);
+        if (result.replayed()) {
+            return ResponseEntity.ok().header("Idempotent-Replayed", "true").body(result.charge());
+        }
+        return ResponseEntity.ok(result.charge());
     }
 
     @GetMapping("/dashboard")
