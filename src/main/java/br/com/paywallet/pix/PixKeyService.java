@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import br.com.paywallet.user.Documents;
 import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.exception.NotFoundException;
 import br.com.paywallet.exception.TooManyRequestsException;

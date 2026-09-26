@@ -1,6 +1,6 @@
-package br.com.paywallet.pix;
+package br.com.paywallet.user;
 
-final class Documents {
+public final class Documents {
 
     private Documents() {
     }
@@ -8,7 +8,7 @@ final class Documents {
     /**
      * CPFs are shown as ***.456.789-**, the masking used by Pix apps; CNPJs identify companies and are public.
      */
-    static String mask(String document) {
+    public static String mask(String document) {
         if (document == null) {
             return null;
         }

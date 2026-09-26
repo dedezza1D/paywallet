@@ -28,6 +28,7 @@ import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.utility.DockerImageName;
 
 import br.com.paywallet.auth.TokenService;
+import br.com.paywallet.bill.BillGateway;
 import br.com.paywallet.external.AuthorizationClient;
 import br.com.paywallet.external.NotificationClient;
 import br.com.paywallet.pix.PixGateway;
@@ -70,6 +71,7 @@ public abstract class IntegrationTest {
         registry.add("app.storage.secret-key", S3::getSecretKey);
         registry.add("app.outbox.poll-interval", () -> "200ms");
         registry.add("app.pix.settlement-interval", () -> "200ms");
+        registry.add("app.bill.settlement-interval", () -> "200ms");
         registry.add("app.pix.webhook-secret", () -> WEBHOOK_SECRET);
     }
 
@@ -78,6 +80,7 @@ public abstract class IntegrationTest {
     @MockitoBean protected AuthorizationClient authorizationClient;
     @MockitoBean protected NotificationClient notificationClient;
     @MockitoBean protected PixGateway pixGateway;
+    @MockitoBean protected BillGateway billGateway;
 
     @Autowired protected MockMvc mvc;
     @Autowired protected UserService userService;
@@ -92,6 +95,7 @@ public abstract class IntegrationTest {
         when(authorizationClient.isAuthorized()).thenReturn(true);
         when(notificationClient.send(anyString(), anyString())).thenReturn(true);
         when(pixGateway.submit(any())).thenReturn(PixGateway.SubmitResult.ok());
+        when(billGateway.pay(any())).thenReturn(BillGateway.PaymentResult.ok("AUTH-TEST"));
     }
 
     /** Unique document and email per call: ledger rows are immutable, so the database is never cleaned. */

@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 
 import org.junit.jupiter.api.Test;
 
+import br.com.paywallet.user.Documents;
 import br.com.paywallet.exception.BusinessException;
 
 class BrCodeTest {

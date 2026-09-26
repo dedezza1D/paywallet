@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import br.com.paywallet.user.Documents;
 import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.exception.ConflictException;
 import br.com.paywallet.exception.InsufficientFundsException;
