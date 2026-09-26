@@ -94,6 +94,8 @@ services:
       ALLOW_SELF_DEPOSIT: "true"
       PIX_WEBHOOK_SECRET: dev-only-webhook-secret
       CARD_WEBHOOK_SECRET: dev-only-card-webhook-secret
+      # Development only: encrypts gift card codes at rest.
+      VOUCHER_KEY: mVA0yS2utY5uFJAj5mDvHGqvZCT8bhlSXbz079HZL9o=
     ports:
       - "8080:8080"
 

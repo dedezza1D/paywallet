@@ -104,6 +104,11 @@ app:
     due-days-after-closing: 10
     statement-job-enabled: ${CARD_STATEMENT_JOB_ENABLED:true}
     zone: America/Sao_Paulo
+  marketplace:
+    provider: ${MARKETPLACE_PROVIDER:simulated}
+    fulfillment-interval: 1s
+    voucher-key: ${VOUCHER_KEY:}
+    zone: America/Sao_Paulo
   bill:
     gateway: ${BILL_GATEWAY:simulated}
     settlement-interval: 1s

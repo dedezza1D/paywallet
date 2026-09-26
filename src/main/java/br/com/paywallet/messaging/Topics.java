@@ -6,6 +6,7 @@ public final class Topics {
     public static final String PIX_RECEIVED = "paywallet.pix.received";
     public static final String CHARGES_PAID = "paywallet.charges.paid";
     public static final String LOAN_INSTALLMENT_OVERDUE = "paywallet.loans.installment-overdue";
+    public static final String MARKETPLACE_ORDERS_COMPLETED = "paywallet.marketplace.orders-completed";
 
     private Topics() {
     }

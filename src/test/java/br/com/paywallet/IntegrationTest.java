@@ -35,6 +35,7 @@ import br.com.paywallet.card.CardProcessor;
 import br.com.paywallet.credit.CreditBureau;
 import br.com.paywallet.external.AuthorizationClient;
 import br.com.paywallet.external.NotificationClient;
+import br.com.paywallet.marketplace.MarketplaceProvider;
 import br.com.paywallet.pix.PixGateway;
 import br.com.paywallet.user.UserDtos.CreateUserRequest;
 import br.com.paywallet.user.UserDtos.UserResponse;
@@ -77,6 +78,7 @@ public abstract class IntegrationTest {
         registry.add("app.outbox.poll-interval", () -> "200ms");
         registry.add("app.pix.settlement-interval", () -> "200ms");
         registry.add("app.bill.settlement-interval", () -> "200ms");
+        registry.add("app.marketplace.fulfillment-interval", () -> "200ms");
         // The daily job must not credit yield in the middle of tests that assert exact balances.
         registry.add("app.yield.enabled", () -> "false");
         registry.add("app.credit.collection-enabled", () -> "false");
@@ -87,6 +89,7 @@ public abstract class IntegrationTest {
 
     protected static final String WEBHOOK_SECRET = "test-webhook-secret";
     protected static final String CARD_WEBHOOK_SECRET = "test-card-webhook-secret";
+    protected static final String GIFT_CODE = "TEST-GIFT-CODE-0001";
     /** Every day is a business day in tests, at 0.05% per day. */
     protected static final BigDecimal TEST_CDI_DAILY_RATE = new BigDecimal("0.05");
 
@@ -97,6 +100,7 @@ public abstract class IntegrationTest {
     @MockitoBean protected CdiRateProvider cdiRates;
     @MockitoBean protected CreditBureau creditBureau;
     @MockitoBean protected CardProcessor cardProcessor;
+    @MockitoBean protected MarketplaceProvider marketplaceProvider;
 
     @Autowired protected MockMvc mvc;
     @Autowired protected UserService userService;
@@ -112,6 +116,9 @@ public abstract class IntegrationTest {
         when(notificationClient.send(anyString(), anyString())).thenReturn(true);
         when(pixGateway.submit(any())).thenReturn(PixGateway.SubmitResult.ok());
         when(billGateway.pay(any())).thenReturn(BillGateway.PaymentResult.ok("AUTH-TEST"));
+        when(marketplaceProvider.fulfill(any())).thenAnswer(invocation -> MarketplaceProvider.FulfillmentResult.ok(
+                invocation.<MarketplaceProvider.FulfillmentOrder>getArgument(0).phoneNumber() == null ? GIFT_CODE : null,
+                "REF-TEST"));
         when(creditBureau.report(anyString())).thenReturn(new CreditBureau.BureauReport(800, false));
         when(cardProcessor.issue(any(), anyString(), any())).thenAnswer(invocation -> new CardProcessor.IssuedCard(
                 "tok_" + UUID.randomUUID().toString().replace("-", ""), "4242", "MASTERCARD", 12,
