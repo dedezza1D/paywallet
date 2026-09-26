@@ -22,7 +22,7 @@ public class KafkaConfig {
     private static final int PARTITIONS = 3;
 
     private static final List<String> TOPICS =
-            List.of(Topics.TRANSFERS_COMPLETED, Topics.PIX_RECEIVED, Topics.CHARGES_PAID);
+            List.of(Topics.TRANSFERS_COMPLETED, Topics.PIX_RECEIVED, Topics.CHARGES_PAID, Topics.LOAN_INSTALLMENT_OVERDUE);
 
     /**
      * Each topic gets a "-dlt" companion. The recoverer writes to the same partition number, so the DLT needs at

@@ -75,6 +75,18 @@ app:
     lookups-per-minute: 30
     max-keys-individual: 5
     max-keys-merchant: 20
+  credit:
+    bureau: ${CREDIT_BUREAU:simulated}
+    collection-enabled: ${LOAN_COLLECTION_ENABLED:true}
+    analysis-validity: 30d
+    min-amount: 100.00
+    min-installments: 3
+    max-installments: 24
+    iof-flat-percent: 0.38
+    iof-daily-percent: 0.0082
+    late-fine-percent: 2
+    late-monthly-interest-percent: 1
+    zone: America/Sao_Paulo
   yield:
     enabled: ${YIELD_ENABLED:true}
     cdi-percentage: ${YIELD_CDI_PERCENTAGE:100}

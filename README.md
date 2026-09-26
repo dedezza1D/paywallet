@@ -65,8 +65,9 @@ Guarantees enforced **by the database itself**:
 
 System accounts: `SYSTEM_CASH_IN` (manual cash-in), `SYSTEM_PIX_SETTLEMENT` (Pix exchanged with other
 institutions), `SYSTEM_BILL_SETTLEMENT` (bill payments awaiting settlement), `SYSTEM_YIELD` (source of the yield
-paid on balances) and `SYSTEM_FEES` (revenue). All but the last may go negative because they offset money held
-for customers.
+paid on balances), `SYSTEM_LOAN_PRINCIPAL` (principal owed by borrowers), `SYSTEM_INTEREST_INCOME` (interest and
+late charges earned), `SYSTEM_TAX_PAYABLE` (IOF withheld) and `SYSTEM_FEES` (revenue). Settlement, cash-in, yield
+and loan principal accounts may go negative because they offset money held for or lent to customers.
 **All balances always sum to zero**, which `GET /ledger/reconciliation` verifies along with each snapshot
 against its postings.
 
@@ -228,6 +229,32 @@ default). Merchant wallets do not earn.
 Credits are gross: income tax (regressive table) and IOF are charged when an investment is redeemed and depend
 on the age of each deposit, which is not modeled yet.
 
+## Personal loans
+
+Individuals can borrow up to a credit limit and repay in monthly installments debited from their wallet. Lending
+to the public requires an authorized institution (e.g. an SCD) or a partner bank; the credit bureau is behind the
+`CreditBureau` interface with a simulated implementation.
+
+- **Credit analysis** (`GET /credit/analysis`): the score combines the bureau (60%) with behavior on the platform
+  (40%): account age, inflows over the last 90 days, balance and repayment history. Bureau restrictions or overdue
+  installments reject the request. Risk bands set the monthly rate and the maximum limit (A: 1.99%, up to
+  R$ 20,000; B: 3.49%, up to R$ 8,000; C: 5.99%, up to R$ 3,000); within the band the limit is three times the
+  average monthly inflow, never below R$ 500. Every decision is stored with the reasons that shaped it, so it can
+  be explained to the customer, and it is reused for 30 days instead of querying the bureau again.
+- **Simulation** (`POST /loans/simulations`): Price table (constant installments), 3 to 24 months. IOF for
+  individuals (0.38% plus 0.0082% per day on each installment's principal, up to 365 days) is financed with the
+  loan. The response shows the CET (total effective cost) that regulation requires alongside the nominal rate:
+  the annual rate that discounts every installment, at days/365, to the amount actually received.
+- **Contract** (`POST /loans`, `Idempotency-Key`): disburses into the wallet in one ledger movement. The financed
+  principal goes to `SYSTEM_LOAN_PRINCIPAL`, the amount to the wallet and the IOF to `SYSTEM_TAX_PAYABLE`.
+  Contracts of one customer are serialized, so concurrent requests cannot exceed the limit together.
+- **Collection**: a daily job (06:00) debits every installment due, oldest first. Principal returns to
+  `SYSTEM_LOAN_PRINCIPAL` and interest goes to `SYSTEM_INTEREST_INCOME`. Without enough balance the installment
+  becomes `OVERDUE` and the customer is notified once through the outbox; when it is finally paid, a 2% fine and
+  1% a month of default interest (pro rata per day) are charged. Customers can also pay the oldest installment
+  themselves (`POST /loans/{id}/installments/{n}/payment`); admins can run a collection with
+  `POST /admin/loans/collections?date=`.
+
 ## Running
 
 ```bash
@@ -288,6 +315,13 @@ mvn test
 | POST | `/bills/payments` | user | Pay a boleto with wallet balance. Requires `Idempotency-Key`. 202 pending |
 | GET | `/bills/payments` | user | Own bill payments |
 | GET | `/bills/payments/{id}` | user | Payment status and bank authentication code |
+| GET | `/credit/analysis` | user | Credit decision: score, band, limit, available, rate and reasons |
+| POST | `/loans/simulations` | user | Installments, IOF, CET and full schedule for an amount and term |
+| POST | `/loans` | user | Contract and disburse a loan. Requires `Idempotency-Key` |
+| GET | `/loans` | user | Own loans with their schedules |
+| GET | `/loans/{id}` | user | Loan details and installment status |
+| POST | `/loans/{id}/installments/{n}/payment` | user | Pay the oldest unpaid installment now |
+| POST | `/admin/loans/collections?date=` | admin | Run the installment collection for a date |
 | GET | `/users/{id}/yield` | owner | Share of the CDI, current rate, totals and daily yield history |
 | POST | `/admin/yield/runs?date=` | admin | Process the yield of one business day. Safe to repeat |
 | POST | `/users/{id}/deposit` | admin | Manual cash-in for testing. Requires `Idempotency-Key`. Owner allowed when `ALLOW_SELF_DEPOSIT=true` (dev) |
@@ -357,6 +391,9 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
   own systems (e-commerce), receivables settlement schedules and anticipation, card acquiring and POS terminals.
   Charge QR codes are static BR Codes with a txid; true dynamic Pix QR codes point to a signed payload hosted by
   the PSP.
+- Loans still missing: a real bureau adapter, early repayment with the proportional interest discount required
+  by consumer law, renegotiation, payroll-deductible loans and FGTS anticipation, reporting to the central bank
+  credit registry (SCR), paying the withheld IOF to the government, and due dates moved to business days.
 - Yield still missing: income tax and IOF withholding per deposit lot on redemption, investing the balances in
   real assets (CDB, government bonds) through a custodian, and daily balance snapshots so the end-of-day balance
   query does not scan the whole posting history.

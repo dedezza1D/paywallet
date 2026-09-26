@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import br.com.paywallet.credit.InstallmentOverdueEvent;
 import br.com.paywallet.ledger.Money;
 import br.com.paywallet.merchant.ChargePaidEvent;
 import br.com.paywallet.messaging.EventHeaders;
@@ -60,6 +61,15 @@ public class PaymentNotificationListener {
         String label = event.reference() != null ? event.reference() : event.chargeId().toString();
         notifyOnce(eventId, event.merchantEmail(), "Charge %s paid: R$ %s (R$ %s net)".formatted(label,
                 Money.fromCents(event.amountCents()).toPlainString(), Money.fromCents(event.netCents()).toPlainString()));
+    }
+
+    @KafkaListener(topics = Topics.LOAN_INSTALLMENT_OVERDUE, groupId = "notifications")
+    public void onInstallmentOverdue(String payload, @Header(EventHeaders.EVENT_ID) String eventId)
+            throws JsonProcessingException {
+        var event = objectMapper.readValue(payload, InstallmentOverdueEvent.class);
+        notifyOnce(eventId, event.email(), ("Installment %d of your loan (R$ %s, due %s) is overdue. Keep a balance "
+                + "in your wallet so it can be debited.").formatted(event.number(),
+                Money.fromCents(event.amountCents()).toPlainString(), event.dueDate()));
     }
 
     private void notifyOnce(String eventId, String email, String message) {
