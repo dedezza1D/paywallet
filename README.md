@@ -64,8 +64,9 @@ Guarantees enforced **by the database itself**:
 - `CHECK (allow_negative OR balance >= 0)`: user wallets never go negative.
 
 System accounts: `SYSTEM_CASH_IN` (manual cash-in), `SYSTEM_PIX_SETTLEMENT` (Pix exchanged with other
-institutions), `SYSTEM_BILL_SETTLEMENT` (bill payments awaiting settlement) and `SYSTEM_FEES` (revenue). The
-settlement and cash-in accounts may go negative because they offset money held for customers.
+institutions), `SYSTEM_BILL_SETTLEMENT` (bill payments awaiting settlement), `SYSTEM_YIELD` (source of the yield
+paid on balances) and `SYSTEM_FEES` (revenue). All but the last may go negative because they offset money held
+for customers.
 **All balances always sum to zero**, which `GET /ledger/reconciliation` verifies along with each snapshot
 against its postings.
 
@@ -203,6 +204,30 @@ refused, to exercise reversals).
 - A partial unique index allows only one pending or confirmed payment per barcode, so a bill is never paid twice
   on this platform; a failed attempt does not block paying it again.
 
+## Balance yield
+
+Individuals' wallet balances earn a share of the CDI every business day (`app.yield.cdi-percentage`, 100% by
+default). Merchant wallets do not earn.
+
+- **Rate and calendar**: the daily CDI comes from the central bank's public SGS series 12. It is published for
+  business days only, so weekends and holidays need no calendar of their own: a day without a rate earns nothing.
+  `CDI_SOURCE=fixed` uses a constant rate on weekdays for offline development.
+- **Calculation**: for each business day, the balance at the end of that day (`America/Sao_Paulo`) is taken from the
+  ledger postings and credited with `balance × daily CDI × share`. The next day's balance includes that credit,
+  so yield compounds. Amounts are computed to 10 decimal places of a cent; whole cents are credited and the rest
+  is carried to the next day, so even small balances eventually earn.
+- **Ledger**: credits come from `SYSTEM_YIELD` (the return on the assets backing customer balances) as
+  `YIELD_CREDIT` movements. Each account and day is credited in its own transaction keyed by account and date, so
+  runs can be interrupted and repeated without crediting twice.
+- **Job**: runs daily at 08:00 (`America/Sao_Paulo`) and processes every business day since the last completed run, up to
+  yesterday, catching up to 30 days after downtime. Admins can (re)process a single day with
+  `POST /admin/yield/runs?date=`.
+- `GET /users/{id}/yield` shows the share of the CDI, the latest daily rate, its annualized equivalent over 252
+  business days, totals and the last 30 daily credits.
+
+Credits are gross: income tax (regressive table) and IOF are charged when an investment is redeemed and depend
+on the age of each deposit, which is not modeled yet.
+
 ## Running
 
 ```bash
@@ -263,6 +288,8 @@ mvn test
 | POST | `/bills/payments` | user | Pay a boleto with wallet balance. Requires `Idempotency-Key`. 202 pending |
 | GET | `/bills/payments` | user | Own bill payments |
 | GET | `/bills/payments/{id}` | user | Payment status and bank authentication code |
+| GET | `/users/{id}/yield` | owner | Share of the CDI, current rate, totals and daily yield history |
+| POST | `/admin/yield/runs?date=` | admin | Process the yield of one business day. Safe to repeat |
 | POST | `/users/{id}/deposit` | admin | Manual cash-in for testing. Requires `Idempotency-Key`. Owner allowed when `ALLOW_SELF_DEPOSIT=true` (dev) |
 | GET | `/users` | admin | List users |
 | GET | `/ledger/reconciliation` | admin | Ledger audit |
@@ -330,6 +357,9 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
   own systems (e-commerce), receivables settlement schedules and anticipation, card acquiring and POS terminals.
   Charge QR codes are static BR Codes with a txid; true dynamic Pix QR codes point to a signed payload hosted by
   the PSP.
+- Yield still missing: income tax and IOF withholding per deposit lot on redemption, investing the balances in
+  real assets (CDB, government bonds) through a custodian, and daily balance snapshots so the end-of-day balance
+  query does not scan the whole posting history.
 - Bill payments still missing: a real banking partner adapter, scheduling payments for a future date, the
   clearing cut-off time (payments after it settle on the next business day), installment payment with a credit
   card, and PDF receipts.

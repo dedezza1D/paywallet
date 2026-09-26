@@ -9,5 +9,6 @@ public enum LedgerTransactionType {
     PIX_IN,
     CHARGE_PAYMENT,
     BILL_PAYMENT,
-    BILL_PAYMENT_REVERSAL
+    BILL_PAYMENT_REVERSAL,
+    YIELD_CREDIT
 }

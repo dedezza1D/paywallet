@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -37,6 +39,7 @@ import br.com.paywallet.user.UserDtos.UserResponse;
 import br.com.paywallet.user.UserService;
 import br.com.paywallet.user.UserType;
 import br.com.paywallet.wallet.WalletService;
+import br.com.paywallet.yield.CdiRateProvider;
 
 /** Runs against the same data stores used in production, started once and shared by all test classes. */
 @SpringBootTest
@@ -72,15 +75,20 @@ public abstract class IntegrationTest {
         registry.add("app.outbox.poll-interval", () -> "200ms");
         registry.add("app.pix.settlement-interval", () -> "200ms");
         registry.add("app.bill.settlement-interval", () -> "200ms");
+        // The daily job must not credit yield in the middle of tests that assert exact balances.
+        registry.add("app.yield.enabled", () -> "false");
         registry.add("app.pix.webhook-secret", () -> WEBHOOK_SECRET);
     }
 
     protected static final String WEBHOOK_SECRET = "test-webhook-secret";
+    /** Every day is a business day in tests, at 0.05% per day. */
+    protected static final BigDecimal TEST_CDI_DAILY_RATE = new BigDecimal("0.05");
 
     @MockitoBean protected AuthorizationClient authorizationClient;
     @MockitoBean protected NotificationClient notificationClient;
     @MockitoBean protected PixGateway pixGateway;
     @MockitoBean protected BillGateway billGateway;
+    @MockitoBean protected CdiRateProvider cdiRates;
 
     @Autowired protected MockMvc mvc;
     @Autowired protected UserService userService;
@@ -96,6 +104,13 @@ public abstract class IntegrationTest {
         when(notificationClient.send(anyString(), anyString())).thenReturn(true);
         when(pixGateway.submit(any())).thenReturn(PixGateway.SubmitResult.ok());
         when(billGateway.pay(any())).thenReturn(BillGateway.PaymentResult.ok("AUTH-TEST"));
+        when(cdiRates.dailyRates(any(), any())).thenAnswer(invocation -> {
+            LocalDate from = invocation.getArgument(0);
+            LocalDate to = invocation.getArgument(1);
+            var rates = new TreeMap<LocalDate, BigDecimal>();
+            from.datesUntil(to.plusDays(1)).forEach(day -> rates.put(day, TEST_CDI_DAILY_RATE));
+            return rates;
+        });
     }
 
     /** Unique document and email per call: ledger rows are immutable, so the database is never cleaned. */
