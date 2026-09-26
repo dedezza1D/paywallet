@@ -2,7 +2,7 @@ package br.com.paywallet.bill;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -146,7 +146,7 @@ class BillIntegrationTest extends IntegrationTest {
         var payer = newUserWithBalance("Rejected Bill", "100.00");
         String line = bankLine(3_000, TODAY.plusDays(5));
         stubQuote(line, fixedQuote(3_000, 3_000, TODAY.plusDays(5), TODAY.plusDays(35)));
-        when(billGateway.pay(any())).thenReturn(PaymentResult.rejected("Beneficiary account closed"));
+        when(billGateway.pay(forBarcode(line))).thenReturn(PaymentResult.rejected("Beneficiary account closed"));
 
         String id = JsonPath.read(pay(payer, newKey(), line, null).andExpect(status().isAccepted())
                 .andReturn().getResponse().getContentAsString(), "$.id");
@@ -157,7 +157,7 @@ class BillIntegrationTest extends IntegrationTest {
         mvc.perform(get("/users/{id}/limits", payer.id()).with(as(payer)))
                 .andExpect(jsonPath("$.usedToday").value(0.0));
 
-        when(billGateway.pay(any())).thenReturn(PaymentResult.ok("AUTH-RETRY"));
+        when(billGateway.pay(forBarcode(line))).thenReturn(PaymentResult.ok("AUTH-RETRY"));
         pay(payer, newKey(), line, null).andExpect(status().isAccepted());
         assertThat(ledger.reconcile().consistent()).isTrue();
     }
@@ -167,7 +167,7 @@ class BillIntegrationTest extends IntegrationTest {
         var payer = newUserWithBalance("Outage Bill", "100.00");
         String line = bankLine(2_000, TODAY.plusDays(5));
         stubQuote(line, fixedQuote(2_000, 2_000, TODAY.plusDays(5), TODAY.plusDays(35)));
-        when(billGateway.pay(any()))
+        when(billGateway.pay(forBarcode(line)))
                 .thenThrow(new ExternalServiceException("Partner unavailable", null))
                 .thenReturn(PaymentResult.ok("AUTH-LATER"));
 
@@ -211,6 +211,15 @@ class BillIntegrationTest extends IntegrationTest {
     private void stubQuote(String line, BillQuote quote) {
         String barcode = BoletoCode.parse(line, TODAY).barcode();
         when(billGateway.lookup(barcode)).thenReturn(Optional.of(quote));
+    }
+
+    /**
+     * Matches only this test's bill. Earlier tests may leave payments pending that the worker settles in the
+     * background; a catch-all stub would let them consume this test's scripted responses.
+     */
+    private static BillGateway.BillOrder forBarcode(String line) {
+        String barcode = BoletoCode.parse(line, TODAY).barcode();
+        return argThat(order -> order != null && barcode.equals(order.barcode()));
     }
 
     private static BillQuote fixedQuote(long nominal, long due, LocalDate dueDate, LocalDate deadline) {
