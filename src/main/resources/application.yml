@@ -75,6 +75,14 @@ app:
     lookups-per-minute: 30
     max-keys-individual: 5
     max-keys-merchant: 20
+  yield:
+    enabled: ${YIELD_ENABLED:true}
+    cdi-percentage: ${YIELD_CDI_PERCENTAGE:100}
+    cdi-source: ${CDI_SOURCE:bcb}
+    fixed-daily-rate: 0.055131
+    bcb-series-url: https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados
+    max-catch-up-days: 30
+    zone: America/Sao_Paulo
   bill:
     gateway: ${BILL_GATEWAY:simulated}
     settlement-interval: 1s

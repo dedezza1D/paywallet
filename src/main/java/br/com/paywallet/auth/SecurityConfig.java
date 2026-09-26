@@ -61,7 +61,7 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
                         // Authenticated by an HMAC signature from the PSP instead of a user token.
                         .requestMatchers(HttpMethod.POST, "/pix/webhooks/**").permitAll()
-                        .requestMatchers("/ledger/**").hasRole("ADMIN")
+                        .requestMatchers("/ledger/**", "/admin/**").hasRole("ADMIN")
                         .requestMatchers("/merchant/**").hasAuthority(MERCHANT)
                         .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN")
                         // In production money comes in through Pix/boleto; deposits here are admin-only (self in dev).
