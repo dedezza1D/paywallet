@@ -68,8 +68,9 @@ institutions), `SYSTEM_BILL_SETTLEMENT` (bill payments awaiting settlement), `SY
 paid on balances), `SYSTEM_LOAN_PRINCIPAL` (principal owed by borrowers), `SYSTEM_INTEREST_INCOME` (interest and
 late charges earned), `SYSTEM_TAX_PAYABLE` (IOF withheld), `SYSTEM_CARD_HOLDS` (debit card purchases awaiting
 clearing), `SYSTEM_CARD_SETTLEMENT` (owed to the card network), `SYSTEM_CARD_RECEIVABLES` (owed by credit card
-holders) and `SYSTEM_FEES` (revenue). Settlement, cash-in, yield, loan principal and card receivable accounts may go
-negative because they offset money held for or lent to customers.
+holders), `SYSTEM_MARKETPLACE_SETTLEMENT` (owed to product providers), `SYSTEM_CASHBACK` (cashback paid out) and
+`SYSTEM_FEES` (revenue). Settlement, cash-in, yield, loan principal, card receivable and cashback accounts may go
+negative because they offset money held for, lent or given to customers.
 **All balances always sum to zero**, which `GET /ledger/reconciliation` verifies along with each snapshot
 against its postings.
 
@@ -289,6 +290,26 @@ an issuing partner; the processor sits behind the `CardProcessor` interface with
   open statement from the wallet (`Idempotency-Key`); admins can close statements for a date with
   `POST /admin/cards/statements/close?date=`.
 
+## Marketplace and cashback
+
+Individuals buy gift cards (Netflix, Spotify, Uber, iFood, Google Play) and prepaid mobile recharges (Vivo, Claro,
+TIM) with their balance. Products come from an aggregator behind the `MarketplaceProvider` interface, with a
+simulated implementation; the platform sells at face value and earns a commission per sale, part of which returns
+to the customer as cashback.
+
+- **Catalog** (`GET /marketplace/products?category=`): fixed face values per product, with the cashback percentage.
+  Commission and cashback rates live in `marketplace_products`; a check constraint keeps cashback within commission.
+- **Purchase** (`POST /marketplace/orders`, `Idempotency-Key`): same safeguards as other outflows (balance, daily
+  limit, external authorizer). The amount moves from the wallet to `SYSTEM_MARKETPLACE_SETTLEMENT` and the order is
+  `PENDING` (202).
+- **Fulfillment**: a worker (every second, `SKIP LOCKED`) asks the provider for the product. On delivery the
+  commission moves to `SYSTEM_FEES`, the rest stays owed to the provider, the cashback is credited to the wallet
+  from `SYSTEM_CASHBACK` and the customer is notified through the outbox. Refused orders are refunded in full and
+  their daily limit released; while the provider is unreachable the order stays pending and is retried.
+- **Gift card codes** work like cash, so they are encrypted at rest with AES-256-GCM (`VOUCHER_KEY`) and shown only
+  in `GET /marketplace/orders/{id}` to the buyer, never in lists, events or notifications.
+- **Cashback** (`GET /cashback`): total earned and this month's total.
+
 ## Running
 
 ```bash
@@ -366,6 +387,11 @@ mvn test
 | POST | `/cards/{id}/statements/{sid}/payment` | user | Pay all or part (`value`) of an open statement. Requires `Idempotency-Key` |
 | POST | `/cards/webhooks/{authorizations,clearings,reversals}` | HMAC | Card processor events |
 | POST | `/admin/cards/statements/close?date=` | admin | Close the statements of cards whose closing day is `date` |
+| GET | `/marketplace/products?category=` | user | Gift cards and mobile recharges with values and cashback |
+| POST | `/marketplace/orders` | user | Buy a product with balance (`phoneNumber` for recharges). Requires `Idempotency-Key` |
+| GET | `/marketplace/orders` | user | Own orders, paged |
+| GET | `/marketplace/orders/{id}` | user | Order status; includes the gift card code once delivered |
+| GET | `/cashback` | user | Cashback earned in total and this month |
 | GET | `/users/{id}/yield` | owner | Share of the CDI, current rate, totals and daily yield history |
 | POST | `/admin/yield/runs?date=` | admin | Process the yield of one business day. Safe to repeat |
 | POST | `/users/{id}/deposit` | admin | Manual cash-in for testing. Requires `Idempotency-Key`. Owner allowed when `ALLOW_SELF_DEPOSIT=true` (dev) |
@@ -442,6 +468,9 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
   revolving credit, installment plans for an unpaid statement, limit changes, physical cards, wallet tokenization
   (Apple Pay, Google Pay), antifraud scoring at authorization, and notifications for purchases and closed
   statements.
+- Marketplace still missing: a real aggregator adapter, catalog management by admins, cashback campaigns with
+  expiry or caps, cashback on merchant payments, redeeming cashback as a separate balance, and refunds of delivered
+  products.
 - Yield still missing: income tax and IOF withholding per deposit lot on redemption, investing the balances in
   real assets (CDB, government bonds) through a custodian, and daily balance snapshots so the end-of-day balance
   query does not scan the whole posting history.

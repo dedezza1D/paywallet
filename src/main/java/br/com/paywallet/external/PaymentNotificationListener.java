@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import br.com.paywallet.credit.InstallmentOverdueEvent;
 import br.com.paywallet.ledger.Money;
+import br.com.paywallet.marketplace.OrderCompletedEvent;
 import br.com.paywallet.merchant.ChargePaidEvent;
 import br.com.paywallet.messaging.EventHeaders;
 import br.com.paywallet.messaging.Topics;
@@ -70,6 +71,17 @@ public class PaymentNotificationListener {
         notifyOnce(eventId, event.email(), ("Installment %d of your loan (R$ %s, due %s) is overdue. Keep a balance "
                 + "in your wallet so it can be debited.").formatted(event.number(),
                 Money.fromCents(event.amountCents()).toPlainString(), event.dueDate()));
+    }
+
+    @KafkaListener(topics = Topics.MARKETPLACE_ORDERS_COMPLETED, groupId = "notifications")
+    public void onOrderCompleted(String payload, @Header(EventHeaders.EVENT_ID) String eventId)
+            throws JsonProcessingException {
+        var event = objectMapper.readValue(payload, OrderCompletedEvent.class);
+        String cashback = event.cashbackCents() > 0
+                ? " R$ %s cashback credited to your wallet.".formatted(Money.fromCents(event.cashbackCents()).toPlainString())
+                : "";
+        notifyOnce(eventId, event.email(), "Your %s of R$ %s is ready.%s".formatted(event.productName(),
+                Money.fromCents(event.amountCents()).toPlainString(), cashback));
     }
 
     private void notifyOnce(String eventId, String email, String message) {
