@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import br.com.paywallet.exception.FraudDeclinedException;
 import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.user.UserService;
+import io.micrometer.core.instrument.MeterRegistry;
 
 /**
  * Real-time risk screening of every outflow, run before any money moves. Signals come from Redis (attempts in the
@@ -35,15 +36,17 @@ public class FraudService {
     private final LedgerService ledger;
     private final UserService users;
     private final FraudProperties props;
+    private final MeterRegistry meters;
     private final Clock clock;
 
     public FraudService(JdbcTemplate jdbc, StringRedisTemplate redis, LedgerService ledger, UserService users,
-                        FraudProperties props, Clock clock) {
+                        FraudProperties props, MeterRegistry meters, Clock clock) {
         this.jdbc = jdbc;
         this.redis = redis;
         this.ledger = ledger;
         this.users = users;
         this.props = props;
+        this.meters = meters;
         this.clock = clock;
     }
 
@@ -82,6 +85,10 @@ public class FraudService {
                 card ? recentCardDeclines(check.userId(), now) : 0,
                 card);
         var assessment = RiskEvaluator.evaluate(signals, props);
+        meters.counter("paywallet.fraud.assessments", "channel", check.channel().name(), "decision",
+                assessment.decision().name()).increment();
+        assessment.rules().forEach(rule -> meters.counter("paywallet.fraud.rules", "channel", check.channel().name(),
+                "rule", rule.name()).increment());
 
         if (!assessment.declined() && check.counterparty() != null && !signals.knownCounterparty()) {
             jdbc.update("""

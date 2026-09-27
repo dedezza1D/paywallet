@@ -20,6 +20,7 @@ import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.exception.ConflictException;
 import br.com.paywallet.exception.NotFoundException;
 import br.com.paywallet.ledger.Money;
+import br.com.paywallet.observability.PartnerCalls;
 import br.com.paywallet.user.UserService;
 import br.com.paywallet.user.UserType;
 
@@ -35,18 +36,20 @@ public class CardService {
     private final CardAuthorizationRepository authorizations;
     private final CardCharges charges;
     private final CardProcessor processor;
+    private final PartnerCalls partners;
     private final CreditAnalysisService analyses;
     private final UserService users;
     private final CardProperties props;
     private final Clock clock;
 
     public CardService(CardRepository cards, CardAuthorizationRepository authorizations, CardCharges charges,
-                       CardProcessor processor, CreditAnalysisService analyses, UserService users,
-                       CardProperties props, Clock clock) {
+                       CardProcessor processor, PartnerCalls partners, CreditAnalysisService analyses,
+                       UserService users, CardProperties props, Clock clock) {
         this.cards = cards;
         this.authorizations = authorizations;
         this.charges = charges;
         this.processor = processor;
+        this.partners = partners;
         this.analyses = analyses;
         this.users = users;
         this.props = props;
@@ -75,7 +78,8 @@ public class CardService {
             limit = CREDIT_LIMIT_BY_BAND.get(analysis.getRiskBand());
             closingDay = req.closingDay() == null ? DEFAULT_CLOSING_DAY : req.closingDay();
         }
-        var issued = processor.issue(userId, user.getFullName(), req.type());
+        var issued = partners.call("card-processor", "issue",
+                () -> processor.issue(userId, user.getFullName(), req.type()));
         try {
             return response(cards.saveAndFlush(new Card(userId, req.type(), issued, limit, closingDay, clock.instant())));
         } catch (DataIntegrityViolationException e) {
@@ -114,7 +118,8 @@ public class CardService {
             throw new BusinessException("Pay the outstanding balance before cancelling the card");
         }
         card.changeStatus(Card.Status.CANCELLED);
-        processor.updateStatus(card.getProcessorToken(), Card.Status.CANCELLED);
+        partners.run("card-processor", "update-status",
+                () -> processor.updateStatus(card.getProcessorToken(), Card.Status.CANCELLED));
         return response(card);
     }
 
@@ -146,7 +151,7 @@ public class CardService {
             throw new BusinessException("Card is %s".formatted(card.getStatus()));
         }
         card.changeStatus(to);
-        processor.updateStatus(card.getProcessorToken(), to);
+        partners.run("card-processor", "update-status", () -> processor.updateStatus(card.getProcessorToken(), to));
         return response(card);
     }
 

@@ -28,11 +28,12 @@ import br.com.paywallet.exception.ConflictException;
 import br.com.paywallet.exception.NotFoundException;
 import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.ledger.AccountType;
-import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerService.Leg;
 import br.com.paywallet.ledger.LedgerService.PostCommand;
+import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerTransactionType;
 import br.com.paywallet.ledger.Money;
+import br.com.paywallet.observability.PartnerCalls;
 
 /**
  * Money coming back on cleared card purchases: merchant refunds reported by the processor, and chargebacks won in a
@@ -50,6 +51,7 @@ public class CardRefundService {
     private final CardService cardService;
     private final CardCharges charges;
     private final CardProcessor processor;
+    private final PartnerCalls partners;
     private final LedgerService ledger;
     private final BalanceCache balanceCache;
     private final TransactionTemplate transactions;
@@ -58,7 +60,7 @@ public class CardRefundService {
     private final Clock clock;
 
     public CardRefundService(CardRepository cards, CardAuthorizationRepository authorizations, CardService cardService,
-                             CardCharges charges, CardProcessor processor, LedgerService ledger,
+                             CardCharges charges, CardProcessor processor, PartnerCalls partners, LedgerService ledger,
                              BalanceCache balanceCache, TransactionTemplate transactions, JdbcTemplate jdbc,
                              CardProperties props, Clock clock) {
         this.cards = cards;
@@ -66,6 +68,7 @@ public class CardRefundService {
         this.cardService = cardService;
         this.charges = charges;
         this.processor = processor;
+        this.partners = partners;
         this.ledger = ledger;
         this.balanceCache = balanceCache;
         this.transactions = transactions;
@@ -110,7 +113,8 @@ public class CardRefundService {
                         VALUES (?, ?, ?, ?, ?, 'OPEN', ?)
                         """, id, authorizationId, req.reason().name(), req.description(), disputable,
                         Timestamp.from(clock.instant()));
-                processor.openDispute(card.getProcessorToken(), authorizationId, disputable, req.reason().name());
+                partners.run("card-processor", "open-dispute", () -> processor.openDispute(card.getProcessorToken(),
+                        authorizationId, disputable, req.reason().name()));
             });
         } catch (DuplicateKeyException e) {
             throw new ConflictException("This purchase is already disputed");

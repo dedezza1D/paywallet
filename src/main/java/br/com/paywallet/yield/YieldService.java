@@ -23,11 +23,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.ledger.AccountType;
-import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerService.Leg;
 import br.com.paywallet.ledger.LedgerService.PostCommand;
+import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerTransactionType;
 import br.com.paywallet.ledger.Money;
+import br.com.paywallet.observability.PartnerCalls;
 import br.com.paywallet.user.User;
 import br.com.paywallet.user.UserService;
 import br.com.paywallet.user.UserType;
@@ -46,6 +47,7 @@ public class YieldService {
     private static final Logger log = LoggerFactory.getLogger(YieldService.class);
 
     private final CdiRateProvider cdi;
+    private final PartnerCalls partners;
     private final YieldLots lots;
     private final LedgerService ledger;
     private final UserService users;
@@ -55,10 +57,11 @@ public class YieldService {
     private final YieldProperties props;
     private final Clock clock;
 
-    public YieldService(CdiRateProvider cdi, YieldLots lots, LedgerService ledger, UserService users,
-                        BalanceCache balanceCache, JdbcTemplate jdbc, TransactionTemplate transactions,
-                        YieldProperties props, Clock clock) {
+    public YieldService(CdiRateProvider cdi, PartnerCalls partners, YieldLots lots, LedgerService ledger,
+                        UserService users, BalanceCache balanceCache, JdbcTemplate jdbc,
+                        TransactionTemplate transactions, YieldProperties props, Clock clock) {
         this.cdi = cdi;
+        this.partners = partners;
         this.lots = lots;
         this.ledger = ledger;
         this.users = users;
@@ -90,12 +93,13 @@ public class YieldService {
         if (from.isAfter(yesterday)) {
             return;
         }
-        cdi.dailyRates(from, yesterday).forEach(this::run);
+        LocalDate start = from;
+        partners.call("cdi-source", "daily-rates", () -> cdi.dailyRates(start, yesterday)).forEach(this::run);
     }
 
     /** Runs one business day with the rate the CDI source reports for it. */
     public RunResult runFor(LocalDate date) {
-        BigDecimal rate = cdi.dailyRates(date, date).get(date);
+        BigDecimal rate = partners.call("cdi-source", "daily-rates", () -> cdi.dailyRates(date, date)).get(date);
         if (rate == null) {
             throw new BusinessException("%s is not a business day or its CDI is not published yet".formatted(date));
         }

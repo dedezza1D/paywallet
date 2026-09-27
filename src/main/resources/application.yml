@@ -34,6 +34,10 @@ spring:
       acks: all
       properties:
         enable.idempotence: true
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
     consumer:
       auto-offset-reset: earliest
 
@@ -154,7 +158,25 @@ app:
     max-upload-bytes: 10485760
 
 management:
+  # Kept off the public API port: metrics reveal business volumes.
+  server:
+    port: ${MANAGEMENT_PORT:8081}
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
+  metrics:
+    tags:
+      application: paywallet
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        paywallet.partner.requests: true
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${OTLP_TRACING_EXPORT_ENABLED:false}

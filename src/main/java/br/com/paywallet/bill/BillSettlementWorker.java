@@ -17,10 +17,11 @@ import br.com.paywallet.bill.BillGateway.BillOrder;
 import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.hotdata.DailyLimitService;
 import br.com.paywallet.ledger.AccountType;
-import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerService.Leg;
 import br.com.paywallet.ledger.LedgerService.PostCommand;
+import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerTransactionType;
+import br.com.paywallet.observability.PartnerCalls;
 import br.com.paywallet.user.UserService;
 
 /**
@@ -36,6 +37,7 @@ class BillSettlementWorker {
 
     private final BillPaymentRepository payments;
     private final BillGateway gateway;
+    private final PartnerCalls partners;
     private final LedgerService ledger;
     private final UserService users;
     private final DailyLimitService limits;
@@ -43,11 +45,12 @@ class BillSettlementWorker {
     private final TransactionTemplate transactions;
     private final Clock clock;
 
-    BillSettlementWorker(BillPaymentRepository payments, BillGateway gateway, LedgerService ledger, UserService users,
-                         DailyLimitService limits, BalanceCache balanceCache, TransactionTemplate transactions,
-                         Clock clock) {
+    BillSettlementWorker(BillPaymentRepository payments, BillGateway gateway, PartnerCalls partners,
+                         LedgerService ledger, UserService users, DailyLimitService limits, BalanceCache balanceCache,
+                         TransactionTemplate transactions, Clock clock) {
         this.payments = payments;
         this.gateway = gateway;
+        this.partners = partners;
         this.ledger = ledger;
         this.users = users;
         this.limits = limits;
@@ -66,8 +69,9 @@ class BillSettlementWorker {
         var payer = users.get(payment.getPayerUserId());
         BillGateway.PaymentResult result;
         try {
-            result = gateway.pay(new BillOrder(payment.getId().toString(), payment.getBarcode(), payment.getAmount(),
-                    payer.getFullName(), payer.getDocument()));
+            var order = new BillOrder(payment.getId().toString(), payment.getBarcode(), payment.getAmount(),
+                    payer.getFullName(), payer.getDocument());
+            result = partners.call("banking-partner", "bill-payment", () -> gateway.pay(order));
         } catch (RuntimeException e) {
             log.warn("Bill payment {} not submitted, will retry: {}", payment.getId(), e.getMessage());
             payment.recordFailedAttempt(e.getMessage(), clock.instant());

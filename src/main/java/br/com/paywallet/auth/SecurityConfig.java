@@ -56,8 +56,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/users").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/refresh", "/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json", "/feed", "/pay/*").permitAll()
-                        .requestMatchers("/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**",
-                                "/swagger-ui.html").permitAll()
+                        // Actuator lives on the management port, which is not exposed publicly.
+                        .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/error").permitAll()
                         // Authenticated by an HMAC signature from the PSP or card processor instead of a user token.
                         .requestMatchers(HttpMethod.POST, "/pix/webhooks/**", "/cards/webhooks/**").permitAll()

@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.ledger.LedgerService;
+import br.com.paywallet.observability.PartnerCalls;
 import br.com.paywallet.user.User;
 import br.com.paywallet.user.UserService;
 import br.com.paywallet.user.UserType;
@@ -29,16 +30,19 @@ public class CreditAnalysisService {
 
     private final CreditAnalysisRepository analyses;
     private final CreditBureau bureau;
+    private final PartnerCalls partners;
     private final UserService users;
     private final LedgerService ledger;
     private final JdbcTemplate jdbc;
     private final CreditProperties props;
     private final Clock clock;
 
-    public CreditAnalysisService(CreditAnalysisRepository analyses, CreditBureau bureau, UserService users,
-                                 LedgerService ledger, JdbcTemplate jdbc, CreditProperties props, Clock clock) {
+    public CreditAnalysisService(CreditAnalysisRepository analyses, CreditBureau bureau, PartnerCalls partners,
+                                 UserService users, LedgerService ledger, JdbcTemplate jdbc, CreditProperties props,
+                                 Clock clock) {
         this.analyses = analyses;
         this.bureau = bureau;
+        this.partners = partners;
         this.users = users;
         this.ledger = ledger;
         this.jdbc = jdbc;
@@ -60,7 +64,7 @@ public class CreditAnalysisService {
         if (user.getType() != UserType.COMMON) {
             throw new BusinessException("Personal loans are available to individuals only");
         }
-        var report = bureau.report(user.getDocument());
+        var report = partners.call("credit-bureau", "report", () -> bureau.report(user.getDocument()));
         List<String> reasons = new ArrayList<>();
         int internal = internalScore(user, reasons);
         int score = (int) Math.round(report.score() * 0.6 + internal * 0.4);

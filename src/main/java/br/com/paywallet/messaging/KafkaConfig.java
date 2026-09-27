@@ -9,11 +9,14 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaOperations;
+import org.springframework.kafka.listener.ConsumerRecordRecoverer;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+
+import io.micrometer.core.instrument.MeterRegistry;
 
 @Configuration
 public class KafkaConfig {
@@ -42,8 +45,13 @@ public class KafkaConfig {
      * block its partition. Malformed payloads go straight to the DLT since retrying cannot fix them.
      */
     @Bean
-    DefaultErrorHandler kafkaErrorHandler(KafkaOperations<Object, Object> template) {
-        var handler = new DefaultErrorHandler(new DeadLetterPublishingRecoverer(template), new FixedBackOff(1_000L, 3));
+    DefaultErrorHandler kafkaErrorHandler(KafkaOperations<Object, Object> template, MeterRegistry meters) {
+        var deadLetters = new DeadLetterPublishingRecoverer(template);
+        ConsumerRecordRecoverer countingDeadLetters = (record, e) -> {
+            meters.counter("paywallet.kafka.dead_letters", "topic", record.topic()).increment();
+            deadLetters.accept(record, e);
+        };
+        var handler = new DefaultErrorHandler(countingDeadLetters, new FixedBackOff(1_000L, 3));
         handler.addNotRetryableExceptions(JsonProcessingException.class);
         return handler;
     }

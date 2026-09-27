@@ -1,0 +1,62 @@
+groups:
+  - name: paywallet
+    rules:
+      - alert: PaywalletDown
+        expr: up{job="paywallet"} == 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: PayWallet is not answering the metrics scrape
+
+      - alert: HighServerErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{job="paywallet", status=~"5.."}[5m]))
+            / sum(rate(http_server_requests_seconds_count{job="paywallet"}[5m])) > 0.05
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: More than 5% of API requests fail with a server error
+
+      - alert: OutboxBacklog
+        expr: paywallet_queue_pending{queue="outbox"} > 100
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: Events are piling up in the outbox; check Kafka and the relay
+
+      - alert: PaymentsStuck
+        expr: paywallet_queue_oldest_age_seconds{queue=~"pix|pix_returns|bills|marketplace"} > 600
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "{{ $labels.queue }} has items pending for more than 10 minutes; check the partner and the worker"
+
+      - alert: DeadLetters
+        expr: increase(paywallet_kafka_dead_letters_total[10m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Messages from {{ $labels.topic }} were parked in the dead letter topic"
+
+      - alert: PartnerErrors
+        expr: |
+          sum by (partner) (rate(paywallet_partner_requests_seconds_count{error!="none"}[5m]))
+            / sum by (partner) (rate(paywallet_partner_requests_seconds_count[5m])) > 0.2
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 20% of calls to {{ $labels.partner }} fail"
+
+      - alert: HighFraudDeclineRate
+        expr: |
+          sum(rate(paywallet_fraud_assessments_total{decision="DECLINE"}[15m]))
+            / sum(rate(paywallet_fraud_assessments_total[15m])) > 0.2
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: More than 20% of outflows are declined by the risk engine; an attack or a bad rule change
+
+      - alert: FraudAlertsWaiting
+        expr: paywallet_queue_oldest_age_seconds{queue=~"fraud_alerts|pix_fraud_claims"} > 86400
+        labels: {severity: info}
+        annotations:
+          summary: "{{ $labels.queue }} has items waiting for an analyst for more than a day"

@@ -33,11 +33,12 @@ import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.hotdata.DailyLimitService;
 import br.com.paywallet.hotdata.IdempotencyGuard;
 import br.com.paywallet.ledger.AccountType;
-import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerService.Leg;
 import br.com.paywallet.ledger.LedgerService.PostCommand;
+import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerTransactionType;
 import br.com.paywallet.ledger.Money;
+import br.com.paywallet.observability.PartnerCalls;
 import br.com.paywallet.user.Documents;
 import br.com.paywallet.user.UserService;
 import jakarta.persistence.EntityManager;
@@ -52,6 +53,7 @@ public class BillService {
     private static final Logger log = LoggerFactory.getLogger(BillService.class);
 
     private final BillGateway gateway;
+    private final PartnerCalls partners;
     private final BillPaymentRepository payments;
     private final UserService users;
     private final LedgerService ledger;
@@ -64,11 +66,12 @@ public class BillService {
     private final EntityManager em;
     private final Clock clock;
 
-    public BillService(BillGateway gateway, BillPaymentRepository payments, UserService users, LedgerService ledger,
-                       AuthorizationClient authorizer, FraudService fraud, IdempotencyGuard idempotency,
-                       DailyLimitService limits, BalanceCache balanceCache, TransactionTemplate transactions,
-                       EntityManager em, Clock clock) {
+    public BillService(BillGateway gateway, PartnerCalls partners, BillPaymentRepository payments, UserService users,
+                       LedgerService ledger, AuthorizationClient authorizer, FraudService fraud,
+                       IdempotencyGuard idempotency, DailyLimitService limits, BalanceCache balanceCache,
+                       TransactionTemplate transactions, EntityManager em, Clock clock) {
         this.gateway = gateway;
+        this.partners = partners;
         this.payments = payments;
         this.users = users;
         this.ledger = ledger;
@@ -175,7 +178,7 @@ public class BillService {
     private Resolved resolve(String rawCode) {
         LocalDate today = LocalDate.now(clock);
         var code = BoletoCode.parse(rawCode, today);
-        var quote = gateway.lookup(code.barcode())
+        var quote = partners.call("banking-partner", "bill-lookup", () -> gateway.lookup(code.barcode()))
                 .orElseThrow(() -> new NotFoundException("Bill not found in the registry"));
         String reason = null;
         if (quote.alreadyPaid()) {
