@@ -5,6 +5,8 @@ import java.util.Locale;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import br.com.paywallet.auth.AuthDtos.LoginResult;
+import br.com.paywallet.auth.AuthDtos.MfaChallengeResponse;
 import br.com.paywallet.auth.AuthDtos.TokenResponse;
 import br.com.paywallet.auth.RefreshTokenService.IssuedRefreshToken;
 import br.com.paywallet.exception.EmailNotVerifiedException;
@@ -21,6 +23,8 @@ public class AuthService {
     private final TokenService tokens;
     private final RefreshTokenService refreshTokens;
     private final LoginAttemptLimiter limiter;
+    private final MfaService mfa;
+    private final DeviceAlerts devices;
     private final SecurityProperties props;
     /**
      * Hash checked when the email does not exist, so BCrypt still runs and response time does not
@@ -29,17 +33,20 @@ public class AuthService {
     private final String dummyHash;
 
     public AuthService(UserRepository users, PasswordEncoder passwordEncoder, TokenService tokens,
-                       RefreshTokenService refreshTokens, LoginAttemptLimiter limiter, SecurityProperties props) {
+                       RefreshTokenService refreshTokens, LoginAttemptLimiter limiter, MfaService mfa,
+                       DeviceAlerts devices, SecurityProperties props) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.tokens = tokens;
         this.refreshTokens = refreshTokens;
         this.limiter = limiter;
+        this.mfa = mfa;
+        this.devices = devices;
         this.props = props;
         this.dummyHash = passwordEncoder.encode("dummy-password-for-timing");
     }
 
-    public TokenResponse login(String email, String password) {
+    public LoginResult login(String email, String password, DeviceAlerts.Device device) {
         String normalized = email.trim().toLowerCase(Locale.ROOT);
         limiter.checkAllowed(normalized);
 
@@ -53,7 +60,20 @@ public class AuthService {
         if (!user.get().isEmailVerified()) {
             throw new EmailNotVerifiedException();
         }
-        return respond(user.get(), refreshTokens.startFamily(user.get().getId()));
+        if (user.get().isTotpEnabled()) {
+            return new LoginResult(null, new MfaChallengeResponse(true, mfa.startChallenge(user.get().getId()),
+                    mfa.challengeTtl().toSeconds()));
+        }
+        return new LoginResult(signIn(user.get(), device), null);
+    }
+
+    public TokenResponse completeMfa(String mfaToken, String code, DeviceAlerts.Device device) {
+        return signIn(mfa.completeChallenge(mfaToken, code), device);
+    }
+
+    private TokenResponse signIn(User user, DeviceAlerts.Device device) {
+        devices.recordSignIn(user, device);
+        return respond(user, refreshTokens.startFamily(user.getId()));
     }
 
     public TokenResponse refresh(String refreshToken) {

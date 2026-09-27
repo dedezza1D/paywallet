@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.com.paywallet.auth.RequiresTransactionPin;
 import br.com.paywallet.marketplace.MarketplaceDtos.CashbackSummary;
 import br.com.paywallet.marketplace.MarketplaceDtos.OrderResponse;
 import br.com.paywallet.marketplace.MarketplaceDtos.ProductResponse;
@@ -40,6 +41,7 @@ public class MarketplaceController {
     }
 
     /** Accepted as PENDING: the product is delivered asynchronously, then the order becomes COMPLETED or FAILED. */
+    @RequiresTransactionPin
     @PostMapping("/marketplace/orders")
     public ResponseEntity<OrderResponse> purchase(
             @AuthenticationPrincipal Jwt jwt,

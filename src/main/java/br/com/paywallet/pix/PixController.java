@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.com.paywallet.auth.RequiresTransactionPin;
 import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.pix.PixDtos.PixKeyResponse;
 import br.com.paywallet.pix.PixDtos.PixPaymentResponse;
@@ -81,6 +82,7 @@ public class PixController {
     }
 
     /** 201 when settled immediately (same institution), 202 while an external Pix is being settled. */
+    @RequiresTransactionPin
     @PostMapping("/payments")
     public ResponseEntity<PixPaymentResponse> send(
             @AuthenticationPrincipal Jwt jwt,

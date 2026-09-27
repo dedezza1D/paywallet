@@ -56,7 +56,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/users").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/login", "/auth/refresh", "/auth/logout").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/email/verify", "/auth/email/verification-code",
-                                "/auth/password/forgot", "/auth/password/reset").permitAll()
+                                "/auth/password/forgot", "/auth/password/reset", "/auth/login/mfa").permitAll()
                         .requestMatchers(HttpMethod.GET, "/.well-known/jwks.json", "/feed", "/pay/*").permitAll()
                         // Actuator lives on the management port, which is not exposed publicly.
                         .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()

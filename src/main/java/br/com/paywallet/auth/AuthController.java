@@ -17,12 +17,19 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 
 import br.com.paywallet.auth.AuthDtos.ChangePasswordRequest;
+import br.com.paywallet.auth.AuthDtos.DisableMfaRequest;
 import br.com.paywallet.auth.AuthDtos.EmailRequest;
 import br.com.paywallet.auth.AuthDtos.LoginRequest;
+import br.com.paywallet.auth.AuthDtos.MfaCodeRequest;
+import br.com.paywallet.auth.AuthDtos.MfaLoginRequest;
+import br.com.paywallet.auth.AuthDtos.MfaSetupResponse;
+import br.com.paywallet.auth.AuthDtos.RecoveryCodesResponse;
 import br.com.paywallet.auth.AuthDtos.RefreshRequest;
 import br.com.paywallet.auth.AuthDtos.ResetPasswordRequest;
+import br.com.paywallet.auth.AuthDtos.SetPinRequest;
 import br.com.paywallet.auth.AuthDtos.TokenResponse;
 import br.com.paywallet.auth.AuthDtos.VerifyEmailRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
 @RestController
@@ -30,17 +37,52 @@ public class AuthController {
 
     private final AuthService auth;
     private final AccountService accounts;
+    private final MfaService mfa;
+    private final TransactionPinService pins;
     private final Map<String, Object> publicJwks;
 
-    public AuthController(AuthService auth, AccountService accounts, RSAKey jwtSigningKey) {
+    public AuthController(AuthService auth, AccountService accounts, MfaService mfa, TransactionPinService pins,
+                          RSAKey jwtSigningKey) {
         this.auth = auth;
         this.accounts = accounts;
+        this.mfa = mfa;
+        this.pins = pins;
         this.publicJwks = new JWKSet(jwtSigningKey.toPublicJWK()).toJSONObject();
     }
 
+    /** Session tokens, or {@code mfaRequired} with a token to finish at {@code /auth/login/mfa}. */
     @PostMapping("/auth/login")
-    public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest req) {
-        return noStore(auth.login(req.email(), req.password()));
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest req, HttpServletRequest request) {
+        var result = auth.login(req.email(), req.password(), device(request));
+        return noStore(result.tokens() != null ? result.tokens() : result.challenge());
+    }
+
+    @PostMapping("/auth/login/mfa")
+    public ResponseEntity<?> loginWithCode(@Valid @RequestBody MfaLoginRequest req, HttpServletRequest request) {
+        return noStore(auth.completeMfa(req.mfaToken(), req.code(), device(request)));
+    }
+
+    @PostMapping("/auth/mfa/setup")
+    public ResponseEntity<?> setupMfa(@AuthenticationPrincipal Jwt jwt) {
+        var setup = mfa.setup(userId(jwt));
+        return noStore(new MfaSetupResponse(setup.secret(), setup.otpauthUri()));
+    }
+
+    @PostMapping("/auth/mfa/enable")
+    public ResponseEntity<?> enableMfa(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody MfaCodeRequest req) {
+        return noStore(new RecoveryCodesResponse(mfa.enable(userId(jwt), req.code())));
+    }
+
+    @PostMapping("/auth/mfa/disable")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void disableMfa(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody DisableMfaRequest req) {
+        mfa.disable(userId(jwt), req.password(), req.code());
+    }
+
+    @PostMapping("/auth/pin")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void setPin(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody SetPinRequest req) {
+        pins.change(userId(jwt), req.password(), req.pin());
     }
 
     @PostMapping("/auth/refresh")
@@ -81,7 +123,7 @@ public class AuthController {
     @PostMapping("/auth/password/change")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changePassword(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody ChangePasswordRequest req) {
-        accounts.changePassword(Long.valueOf(jwt.getSubject()), req.currentPassword(), req.newPassword());
+        accounts.changePassword(userId(jwt), req.currentPassword(), req.newPassword());
     }
 
     @GetMapping("/.well-known/jwks.json")
@@ -89,7 +131,16 @@ public class AuthController {
         return publicJwks;
     }
 
-    private static ResponseEntity<TokenResponse> noStore(TokenResponse body) {
+    private static DeviceAlerts.Device device(HttpServletRequest request) {
+        return new DeviceAlerts.Device(request.getHeader("X-Device-Id"), request.getHeader("User-Agent"),
+                request.getRemoteAddr());
+    }
+
+    private static Long userId(Jwt jwt) {
+        return Long.valueOf(jwt.getSubject());
+    }
+
+    private static <T> ResponseEntity<T> noStore(T body) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).header("Pragma", "no-cache").body(body);
     }
 }

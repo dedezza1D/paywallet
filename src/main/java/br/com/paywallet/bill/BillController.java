@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.com.paywallet.auth.RequiresTransactionPin;
 import br.com.paywallet.bill.BillDtos.BillPaymentResponse;
 import br.com.paywallet.bill.BillDtos.BillQuoteResponse;
 import br.com.paywallet.bill.BillDtos.LookupRequest;
@@ -42,6 +43,7 @@ public class BillController {
     }
 
     /** 202: the wallet is debited now and the bill is settled with the bank shortly after. */
+    @RequiresTransactionPin
     @PostMapping("/payments")
     public ResponseEntity<BillPaymentResponse> pay(
             @AuthenticationPrincipal Jwt jwt,

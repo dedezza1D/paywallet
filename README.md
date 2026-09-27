@@ -51,6 +51,20 @@ each kind of data lives in the store that best fits it.
   address.
 - **Password policy**: 12 to 72 characters (BCrypt reads 72 bytes), not containing the email name or the document;
   length beats composition rules.
+- **Transaction PIN**: every endpoint that moves money out (transfers, Pix and Pix returns, charge payments and
+  refunds, bills, marketplace, card statements, loan installments and prepayments) requires the user's 6-digit PIN
+  in `X-Transaction-Pin`, so a stolen session or password alone cannot move money. It is set or changed with the
+  account password (`POST /auth/pin`), stored with BCrypt, and refuses repeated digits and sequences. Without it
+  the answer is 428; five wrong PINs lock outflows for 30 minutes (429).
+- **Two-factor authentication** (TOTP, RFC 6238, any authenticator app): `POST /auth/mfa/setup` returns the secret
+  and an `otpauth://` URI for the QR code, `POST /auth/mfa/enable` confirms it with a first code and returns 8
+  single-use recovery codes (stored hashed). From then on `POST /auth/login` answers `mfaRequired` with a 5-minute
+  `mfaToken`, and `POST /auth/login/mfa` finishes with a code from the app or a recovery code. Each code works
+  once, and a challenge allows 5 wrong codes. The secret is encrypted like other sensitive fields.
+- **New device alerts**: the first sign-in from a device the account has not used before (identified by the app's
+  `X-Device-Id`, or by the user agent) sends an email with the time, IP address and device.
+- **Per-IP limits**: sign-up, login, codes and password reset accept 30 requests per minute from one address
+  (`AUTH_IP_RATE_LIMIT`), against password spraying and guessing across accounts.
 
 Configure `JWT_PRIVATE_KEY` (RSA PKCS#8 PEM) outside development. Without it an ephemeral key is generated at
 startup, so tokens die on restart and do not work across instances.
@@ -470,6 +484,16 @@ mvn test
 | POST | `/auth/login` | public | Email and password to access and refresh tokens |
 | POST | `/auth/refresh` | public | Rotates the refresh token and issues a new access token |
 | POST | `/auth/logout` | public | Revokes the refresh token's session |
+| POST | `/auth/email/verify` | public | Confirm the email with the 6-digit code |
+| POST | `/auth/email/verification-code` | public | Send a new confirmation code |
+| POST | `/auth/password/forgot` | public | Email a password reset code |
+| POST | `/auth/password/reset` | public | Set a new password with the code; signs out every session |
+| POST | `/auth/password/change` | user | Change the password with the current one |
+| POST | `/auth/pin` | user | Set or change the transaction PIN (`password`, `pin`) |
+| POST | `/auth/mfa/setup` | user | Start TOTP enrollment: secret and `otpauth://` URI |
+| POST | `/auth/mfa/enable` | user | Confirm TOTP with a code; returns the recovery codes once |
+| POST | `/auth/mfa/disable` | user | Turn TOTP off (`password` and a code or recovery code) |
+| POST | `/auth/login/mfa` | public | Finish a login that answered `mfaRequired` (`mfaToken`, `code`) |
 | GET | `/.well-known/jwks.json` | public | Public key to validate access tokens |
 | GET | `/feed` | public | Public feed, without amounts |
 | GET | `/users/{id}` | owner | User profile |
@@ -578,7 +602,8 @@ curl -k -X POST $API/transfer -H "Authorization: Bearer $TOKEN" -H "Content-Type
 | 200 + `Idempotent-Replayed` | Same `Idempotency-Key` repeated: original result, no money moved |
 | 400 | Invalid payload or missing/invalid `Idempotency-Key` |
 | 401 | Missing, invalid or expired token; wrong credentials; invalid refresh token |
-| 403 | Accessing another user's resources, missing role, or payment denied by the authorizer or the risk analysis |
+| 403 | Another user's resources, missing role, email not confirmed, wrong transaction PIN, or payment denied by the authorizer or the risk analysis |
+| 428 | Transaction PIN missing or not set yet |
 | 404 | User or document not found |
 | 409 | Same `Idempotency-Key` still in progress, or duplicate record |
 | 422 | Business rule violated (funds, daily limit, merchant sending, key reused with another payload...) |
@@ -638,7 +663,7 @@ curl -k -X POST $API/transfer -H "Authorization: Bearer $TOKEN" -H "Content-Type
 - Observability still missing: log aggregation (e.g. Loki) next to metrics and traces, Alertmanager routing alerts
   to on-call, SLO burn-rate alerts, and tail-based sampling so production keeps every failed trace at a low
   sampling rate.
-- Security still missing: a second factor (TOTP or device binding) and a transaction PIN for outflows, sign-in
-  alerts for new devices, per-IP rate limits at the gateway, encrypting the counterparty identifiers (documents
-  and Pix keys) kept by the antifraud tables, and a secret manager instead of the development secrets in
-  `docker-compose.yml`.
+- Security still missing: WebAuthn / passkeys and device binding with signed requests, step-up authentication
+  that asks for the second factor on unusual outflows, resetting a forgotten PIN through an email code,
+  encrypting the counterparty identifiers (documents and Pix keys) kept by the antifraud tables, and a secret
+  manager instead of the development secrets in `docker-compose.yml`.

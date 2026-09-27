@@ -55,6 +55,19 @@ public class User {
     @Column(name = "password_changed_at")
     private Instant passwordChangedAt;
 
+    @Column(name = "transaction_pin_hash", length = 100)
+    private String transactionPinHash;
+
+    @Column(name = "pin_changed_at")
+    private Instant pinChangedAt;
+
+    @Convert(converter = EncryptedString.class)
+    @Column(name = "totp_secret")
+    private String totpSecret;
+
+    @Column(name = "totp_enabled_at")
+    private Instant totpEnabledAt;
+
     protected User() {
     }
 
@@ -79,6 +92,30 @@ public class User {
         this.passwordChangedAt = now;
     }
 
+    public void changeTransactionPin(String pinHash, Instant now) {
+        this.transactionPinHash = pinHash;
+        this.pinChangedAt = now;
+    }
+
+    /** A new secret replaces any previous one and stays inactive until a code from it is confirmed. */
+    public void startTotpEnrollment(String secret) {
+        this.totpSecret = secret;
+        this.totpEnabledAt = null;
+    }
+
+    public void enableTotp(Instant now) {
+        this.totpEnabledAt = now;
+    }
+
+    public void disableTotp() {
+        this.totpSecret = null;
+        this.totpEnabledAt = null;
+    }
+
+    public boolean isTotpEnabled() {
+        return totpEnabledAt != null;
+    }
+
     public boolean isEmailVerified() {
         return emailVerifiedAt != null;
     }
@@ -93,4 +130,6 @@ public class User {
     public Instant getCreatedAt() { return createdAt; }
     public Instant getEmailVerifiedAt() { return emailVerifiedAt; }
     public Instant getPasswordChangedAt() { return passwordChangedAt; }
+    public String getTransactionPinHash() { return transactionPinHash; }
+    public String getTotpSecret() { return totpSecret; }
 }
