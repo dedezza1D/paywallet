@@ -3,7 +3,9 @@ package br.com.paywallet.marketplace;
 import java.time.Instant;
 import java.util.UUID;
 
+import br.com.paywallet.crypto.EncryptedString;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -35,7 +37,8 @@ public class MarketplaceOrder {
     @Column(nullable = false, updatable = false)
     private long cashback;
 
-    @Column(name = "phone_number", updatable = false, length = 11)
+    @Convert(converter = EncryptedString.class)
+    @Column(name = "phone_number", updatable = false)
     private String phoneNumber;
 
     @Enumerated(EnumType.STRING)

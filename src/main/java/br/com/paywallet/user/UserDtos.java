@@ -19,15 +19,15 @@ public final class UserDtos {
             @Pattern(regexp = "\\d{11}|\\d{14}", message = "must be a CPF (11 digits) or CNPJ (14 digits), digits only")
             String document,
             @NotBlank @Email String email,
-            @NotBlank @Size(min = 8, message = "must have at least 8 characters") String password,
+            @NotBlank @Size(min = 12, max = 72, message = "must have between 12 and 72 characters") String password,
             @NotNull UserType type) {
     }
 
-    public record UserResponse(Long id, String fullName, String document, String email,
+    public record UserResponse(Long id, String fullName, String document, String email, boolean emailVerified,
                                UserType type, Instant createdAt) {
 
         public static UserResponse from(User u) {
-            return new UserResponse(u.getId(), u.getFullName(), u.getDocument(), u.getEmail(),
+            return new UserResponse(u.getId(), u.getFullName(), u.getDocument(), u.getEmail(), u.isEmailVerified(),
                     u.getType(), u.getCreatedAt());
         }
     }

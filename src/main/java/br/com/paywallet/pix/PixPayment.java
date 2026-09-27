@@ -3,7 +3,9 @@ package br.com.paywallet.pix;
 import java.time.Instant;
 import java.util.UUID;
 
+import br.com.paywallet.crypto.EncryptedString;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -45,7 +47,8 @@ public class PixPayment {
     @Column(name = "payee_user_id", updatable = false)
     private Long payeeUserId;
 
-    @Column(name = "key_value", updatable = false, length = 77)
+    @Convert(converter = EncryptedString.class)
+    @Column(name = "key_value", updatable = false)
     private String key;
 
     @Column(name = "counterparty_name", updatable = false, length = 140)

@@ -3,7 +3,9 @@ package br.com.paywallet.pix;
 import java.time.Instant;
 import java.util.UUID;
 
+import br.com.paywallet.crypto.EncryptedString;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -24,8 +26,12 @@ public class PixKey {
     @Column(name = "key_type", nullable = false, updatable = false, length = 5)
     private PixKeyType type;
 
-    @Column(name = "key_value", nullable = false, updatable = false, unique = true, length = 77)
+    @Convert(converter = EncryptedString.class)
+    @Column(name = "key_value", nullable = false, updatable = false)
     private String value;
+
+    @Column(name = "value_index", nullable = false, updatable = false, unique = true, length = 64)
+    private String valueIndex;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -33,11 +39,12 @@ public class PixKey {
     protected PixKey() {
     }
 
-    PixKey(Long userId, PixKeyType type, String value, Instant createdAt) {
+    PixKey(Long userId, PixKeyType type, String value, String valueIndex, Instant createdAt) {
         this.id = UUID.randomUUID();
         this.userId = userId;
         this.type = type;
         this.value = value;
+        this.valueIndex = valueIndex;
         this.createdAt = createdAt;
     }
 

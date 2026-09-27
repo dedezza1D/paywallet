@@ -34,6 +34,7 @@ import br.com.paywallet.bill.BillGateway;
 import br.com.paywallet.card.CardProcessor;
 import br.com.paywallet.credit.CreditBureau;
 import br.com.paywallet.external.AuthorizationClient;
+import br.com.paywallet.external.EmailSender;
 import br.com.paywallet.external.NotificationClient;
 import br.com.paywallet.marketplace.MarketplaceProvider;
 import br.com.paywallet.pix.PixGateway;
@@ -59,7 +60,7 @@ public abstract class IntegrationTest {
     static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.4-alpine").withExposedPorts(6379);
 
     static final LocalStackContainer S3 = new LocalStackContainer(DockerImageName.parse("localstack/localstack:4.4"))
-            .withServices(LocalStackContainer.Service.S3)
+            .withServices(LocalStackContainer.Service.S3, LocalStackContainer.Service.KMS)
             .withEnv("S3_SKIP_SIGNATURE_VALIDATION", "0");
 
     @ServiceConnection
@@ -75,6 +76,10 @@ public abstract class IntegrationTest {
         registry.add("app.storage.region", S3::getRegion);
         registry.add("app.storage.access-key", S3::getAccessKey);
         registry.add("app.storage.secret-key", S3::getSecretKey);
+        registry.add("app.crypto.kms-endpoint", () -> S3.getEndpoint().toString());
+        registry.add("app.crypto.region", S3::getRegion);
+        registry.add("app.crypto.access-key", S3::getAccessKey);
+        registry.add("app.crypto.secret-key", S3::getSecretKey);
         registry.add("app.outbox.poll-interval", () -> "200ms");
         registry.add("app.pix.settlement-interval", () -> "200ms");
         registry.add("app.bill.settlement-interval", () -> "200ms");
@@ -104,6 +109,7 @@ public abstract class IntegrationTest {
     @MockitoBean protected CreditBureau creditBureau;
     @MockitoBean protected CardProcessor cardProcessor;
     @MockitoBean protected MarketplaceProvider marketplaceProvider;
+    @MockitoBean protected EmailSender emailSender;
 
     @Autowired protected MockMvc mvc;
     @Autowired protected UserService userService;
@@ -136,14 +142,19 @@ public abstract class IntegrationTest {
         });
     }
 
-    /** Unique document and email per call: ledger rows are immutable, so the database is never cleaned. */
+    /**
+     * Unique document and email per call: ledger rows are immutable, so the database is never cleaned. The email is
+     * marked as verified, as if the customer had entered the code.
+     */
     protected UserResponse newUser(UserType type, String name) {
         var rnd = ThreadLocalRandom.current();
         String document = type == UserType.COMMON
                 ? "%011d".formatted(rnd.nextLong(1_000_000_000L, 99_999_999_999L))
                 : "%014d".formatted(rnd.nextLong(10_000_000_000_000L, 99_999_999_999_999L));
-        return userService.create(new CreateUserRequest(name, document,
+        var user = userService.create(new CreateUserRequest(name, document,
                 name.toLowerCase().replace(' ', '.') + "." + UUID.randomUUID() + "@mail.com", PASSWORD, type));
+        jdbc.update("UPDATE users SET email_verified_at = now() WHERE id = ?", user.id());
+        return userService.findById(user.id());
     }
 
     protected String tokenFor(UserResponse user) {
