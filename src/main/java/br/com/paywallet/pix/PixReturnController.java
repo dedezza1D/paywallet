@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.com.paywallet.auth.RequiresTransactionPin;
 import br.com.paywallet.ledger.Money;
 import br.com.paywallet.pix.PixReturnDtos.FraudClaimRequest;
 import br.com.paywallet.pix.PixReturnDtos.FraudClaimResponse;
@@ -37,6 +38,7 @@ public class PixReturnController {
     }
 
     /** By the receiver of the Pix. 201 when settled at once, 202 while a return to another institution is pending. */
+    @RequiresTransactionPin
     @PostMapping("/pix/payments/{endToEndId}/returns")
     public ResponseEntity<PixReturnResponse> returnPix(
             @AuthenticationPrincipal Jwt jwt, @PathVariable String endToEndId,

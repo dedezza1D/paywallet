@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.com.paywallet.auth.RequiresTransactionPin;
 import br.com.paywallet.wallet.WalletDtos.BalanceResponse;
 import br.com.paywallet.wallet.WalletDtos.DepositRequest;
 import br.com.paywallet.wallet.WalletDtos.DepositResponse;
@@ -43,6 +44,7 @@ public class WalletController {
      * Clients send one Idempotency-Key (e.g. a UUID) per payment intent and resend it on retries.
      * First execution: 201. Same key again: 200 with the Idempotent-Replayed header.
      */
+    @RequiresTransactionPin
     @PostMapping("/transfer")
     public ResponseEntity<TransferResponse> transfer(
             @AuthenticationPrincipal Jwt jwt,

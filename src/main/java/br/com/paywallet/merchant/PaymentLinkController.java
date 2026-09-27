@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.com.paywallet.auth.RequiresTransactionPin;
 import br.com.paywallet.merchant.ChargeDtos.PaymentReceipt;
 import br.com.paywallet.merchant.ChargeDtos.PublicChargeResponse;
 
@@ -27,6 +28,7 @@ public class PaymentLinkController {
         return charges.publicView(token);
     }
 
+    @RequiresTransactionPin
     @PostMapping("/pay/{token}")
     public ResponseEntity<PaymentReceipt> pay(@AuthenticationPrincipal Jwt jwt, @PathVariable String token) {
         var result = charges.payWithWallet(Long.valueOf(jwt.getSubject()), token);

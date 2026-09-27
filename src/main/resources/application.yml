@@ -74,6 +74,13 @@ app:
       max-sends-per-hour: 5
       # HMAC key for one-time codes. Empty = ephemeral key, development only.
       pepper: ${AUTH_CODE_PEPPER:}
+    pin:
+      max-attempts: 5
+      lock-duration: 30m
+    mfa:
+      issuer: PayWallet
+      challenge-ttl: 5m
+    ip-rate-limit: ${AUTH_IP_RATE_LIMIT:30}
   mail:
     from: ${MAIL_FROM:PayWallet <no-reply@paywallet.local>}
   external:

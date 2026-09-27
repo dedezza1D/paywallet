@@ -48,6 +48,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
     }
 
+    @ExceptionHandler(TransactionPinRequiredException.class)
+    ProblemDetail handlePinRequired(TransactionPinRequiredException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.PRECONDITION_REQUIRED, ex.getMessage());
+    }
+
+    @ExceptionHandler(InvalidTransactionPinException.class)
+    ProblemDetail handleInvalidPin(InvalidTransactionPinException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
     @ExceptionHandler(FraudDeclinedException.class)
     ProblemDetail handleFraudDeclined(FraudDeclinedException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());

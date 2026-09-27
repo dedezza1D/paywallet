@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.com.paywallet.auth.RequiresTransactionPin;
 import br.com.paywallet.ledger.Money;
 import br.com.paywallet.merchant.ChargeDtos.ChargeResponse;
 import br.com.paywallet.merchant.ChargeDtos.CreateChargeRequest;
@@ -69,6 +70,7 @@ public class MerchantController {
         return charges.cancel(merchantId(jwt), id);
     }
 
+    @RequiresTransactionPin
     @PostMapping("/charges/{id}/refunds")
     public ResponseEntity<ChargeResponse> refund(
             @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,

@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import br.com.paywallet.auth.RequiresTransactionPin;
 import br.com.paywallet.credit.CreditDtos.CreditAnalysisResponse;
 import br.com.paywallet.credit.CreditDtos.InstallmentPaymentResponse;
 import br.com.paywallet.credit.CreditDtos.LoanQuoteResponse;
@@ -72,6 +73,7 @@ public class LoanController {
         return loans.get(userId(jwt), id);
     }
 
+    @RequiresTransactionPin
     @PostMapping("/loans/{id}/installments/{number}/payment")
     public InstallmentPaymentResponse pay(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
                                           @PathVariable int number) {
@@ -84,6 +86,7 @@ public class LoanController {
         return loans.prepaymentQuote(userId(jwt), id, installments);
     }
 
+    @RequiresTransactionPin
     @PostMapping("/loans/{id}/prepayment")
     public ResponseEntity<LoanResponse> prepay(
             @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,

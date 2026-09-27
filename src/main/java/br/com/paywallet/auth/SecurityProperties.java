@@ -11,6 +11,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param loginLockDuration lock duration after too many failures
  * @param allowSelfDeposit  lets users simulate incoming money into their own wallet (development only)
  * @param codes             one-time codes sent by email for verification and password reset
+ * @param pin               transaction PIN required to move money out
+ * @param mfa               TOTP second factor
+ * @param ipRateLimit       requests per minute and client IP accepted on the public authentication endpoints
  */
 @ConfigurationProperties(prefix = "app.security")
 public record SecurityProperties(
@@ -19,7 +22,10 @@ public record SecurityProperties(
         int loginMaxAttempts,
         Duration loginLockDuration,
         boolean allowSelfDeposit,
-        Codes codes) {
+        Codes codes,
+        Pin pin,
+        Mfa mfa,
+        int ipRateLimit) {
 
     /**
      * @param privateKey RSA PKCS#8 PEM. Empty = ephemeral key generated at startup
@@ -33,5 +39,15 @@ public record SecurityProperties(
      *               restart stop working; development only)
      */
     public record Codes(Duration ttl, int maxAttempts, Duration resendCooldown, int maxSendsPerHour, String pepper) {
+    }
+
+    public record Pin(int maxAttempts, Duration lockDuration) {
+    }
+
+    /**
+     * @param issuer       name shown in the authenticator app
+     * @param challengeTtl time to enter the code after the password
+     */
+    public record Mfa(String issuer, Duration challengeTtl) {
     }
 }

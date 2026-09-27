@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -90,6 +91,8 @@ public abstract class IntegrationTest {
         registry.add("app.pix.webhook-secret", () -> WEBHOOK_SECRET);
         registry.add("app.cards.webhook-secret", () -> CARD_WEBHOOK_SECRET);
         registry.add("app.cards.statement-job-enabled", () -> "false");
+        // Every MockMvc request comes from the same address; the per-IP limit has its own test.
+        registry.add("app.security.ip-rate-limit", () -> "100000");
         // Same start and end hour: the nighttime rule would make results depend on when tests run.
         registry.add("app.fraud.night-start-hour", () -> "0");
         registry.add("app.fraud.night-end-hour", () -> "0");
@@ -118,6 +121,8 @@ public abstract class IntegrationTest {
     @Autowired protected JdbcTemplate jdbc;
 
     protected static final String PASSWORD = "strong-password-123";
+    protected static final String TEST_PIN = "482915";
+    private static final String TEST_PIN_HASH = new BCryptPasswordEncoder().encode(TEST_PIN);
 
     @BeforeEach
     void externalServicesSucceedByDefault() {
@@ -144,7 +149,7 @@ public abstract class IntegrationTest {
 
     /**
      * Unique document and email per call: ledger rows are immutable, so the database is never cleaned. The email is
-     * marked as verified, as if the customer had entered the code.
+     * marked as verified, as if the customer had entered the code, and the transaction PIN is {@link #TEST_PIN}.
      */
     protected UserResponse newUser(UserType type, String name) {
         var rnd = ThreadLocalRandom.current();
@@ -153,7 +158,8 @@ public abstract class IntegrationTest {
                 : "%014d".formatted(rnd.nextLong(10_000_000_000_000L, 99_999_999_999_999L));
         var user = userService.create(new CreateUserRequest(name, document,
                 name.toLowerCase().replace(' ', '.') + "." + UUID.randomUUID() + "@mail.com", PASSWORD, type));
-        jdbc.update("UPDATE users SET email_verified_at = now() WHERE id = ?", user.id());
+        jdbc.update("UPDATE users SET email_verified_at = now(), transaction_pin_hash = ? WHERE id = ?", TEST_PIN_HASH,
+                user.id());
         return userService.findById(user.id());
     }
 
@@ -165,6 +171,7 @@ public abstract class IntegrationTest {
         String token = tokenFor(user);
         return request -> {
             request.addHeader("Authorization", "Bearer " + token);
+            request.addHeader("X-Transaction-Pin", TEST_PIN);
             return request;
         };
     }
