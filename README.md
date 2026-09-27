@@ -66,12 +66,12 @@ Guarantees enforced **by the database itself**:
 System accounts: `SYSTEM_CASH_IN` (manual cash-in), `SYSTEM_PIX_SETTLEMENT` (Pix exchanged with other
 institutions), `SYSTEM_BILL_SETTLEMENT` (bill payments awaiting settlement), `SYSTEM_YIELD` (source of the yield
 paid on balances), `SYSTEM_LOAN_PRINCIPAL` (principal owed by borrowers), `SYSTEM_INTEREST_INCOME` (interest and
-late charges earned), `SYSTEM_TAX_PAYABLE` (IOF withheld), `SYSTEM_CARD_HOLDS` (debit card purchases awaiting
-clearing), `SYSTEM_CARD_SETTLEMENT` (owed to the card network), `SYSTEM_CARD_RECEIVABLES` (owed by credit card
-holders), `SYSTEM_MARKETPLACE_SETTLEMENT` (owed to product providers), `SYSTEM_CASHBACK` (cashback paid out),
-`SYSTEM_PIX_MED_HOLDS` (money frozen by Pix fraud claims) and `SYSTEM_FEES` (revenue). Settlement, cash-in,
-yield, loan principal, card receivable and cashback accounts may go negative because they offset money held for,
-lent or given to customers.
+late charges earned), `SYSTEM_TAX_PAYABLE` (IOF and income tax withheld), `SYSTEM_CARD_HOLDS` (debit card
+purchases awaiting clearing), `SYSTEM_CARD_SETTLEMENT` (owed to the card network), `SYSTEM_CARD_RECEIVABLES` (owed
+by credit card holders), `SYSTEM_MARKETPLACE_SETTLEMENT` (owed to product providers), `SYSTEM_CASHBACK` (cashback
+paid out), `SYSTEM_PIX_MED_HOLDS` (money frozen by Pix fraud claims) and `SYSTEM_FEES` (revenue). Settlement,
+cash-in, yield, loan principal, card receivable and cashback accounts may go negative because they offset money
+held for, lent or given to customers.
 **All balances always sum to zero**, which `GET /ledger/reconciliation` verifies along with each snapshot
 against its postings.
 
@@ -227,11 +227,14 @@ default). Merchant wallets do not earn.
 - **Job**: runs daily at 08:00 (`America/Sao_Paulo`) and processes every business day since the last completed run, up to
   yesterday, catching up to 30 days after downtime. Admins can (re)process a single day with
   `POST /admin/yield/runs?date=`.
+- **Taxes**: yield is credited net, as in wallets backed by daily-liquidity CDBs. The balance is tracked in lots by
+  the date each part came in, and outflows consume the oldest lots first. Each day's gross yield is split over
+  the lots and taxed by their age: IOF from 96% of the gain on the first day down to zero on the 30th, then
+  income tax on the rest at 22.5% up to 180 days, 20% up to 360, 17.5% up to 720 and 15% after that. Taxes go to
+  `SYSTEM_TAX_PAYABLE` in the same `YIELD_CREDIT` movement; fractions of a cent are dropped in the customer's
+  favor. Credited yield enters as a new lot, which slightly overstates taxes on yield earned by yield.
 - `GET /users/{id}/yield` shows the share of the CDI, the latest daily rate, its annualized equivalent over 252
-  business days, totals and the last 30 daily credits.
-
-Credits are gross: income tax (regressive table) and IOF are charged when an investment is redeemed and depend
-on the age of each deposit, which is not modeled yet.
+  business days before taxes, net totals, taxes withheld and the last 30 days with gross, IOF, income tax and net.
 
 ## Personal loans
 
@@ -537,9 +540,9 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
 - Antifraud still missing: device and IP signals (fingerprint, geolocation, emulators), a machine learning score
   trained on confirmed cases, step-up authentication instead of a plain decline for medium risk, sharing reports
   through the central bank fraud database (DICT marks), and rule management without redeploying.
-- Yield still missing: income tax and IOF withholding per deposit lot on redemption, investing the balances in
-  real assets (CDB, government bonds) through a custodian, and daily balance snapshots so the end-of-day balance
-  query does not scan the whole posting history.
+- Yield still missing: the annual income report for the tax return (informe de rendimentos), paying the
+  withheld taxes to the government, investing the balances in real assets (CDB, government bonds) through a
+  custodian, and daily balance snapshots so the end-of-day balance query does not scan the whole posting history.
 - Bill payments still missing: a real banking partner adapter, scheduling payments for a future date, the
   clearing cut-off time (payments after it settle on the next business day), installment payment with a credit
   card, and PDF receipts.
