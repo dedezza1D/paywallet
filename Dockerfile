@@ -7,8 +7,11 @@ RUN mvn -B -q package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-RUN addgroup -S app && adduser -S app -G app
-USER app
+# Numeric user, so Kubernetes can enforce runAsNonRoot.
+RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
 COPY --from=build /app/target/paywallet-*.jar app.jar
-EXPOSE 8080
+USER 10001
+# Heap sized from the container memory limit; an OutOfMemoryError restarts the pod instead of leaving it half alive.
+ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+EXPOSE 8080 8081
 ENTRYPOINT ["java", "-jar", "app.jar"]

@@ -476,6 +476,37 @@ must be running:
 mvn test
 ```
 
+## Kubernetes
+
+The Helm chart in `deploy/helm/paywallet` runs the application as a stateless Deployment:
+
+- Rolling updates that never drop below the desired replicas, a PodDisruptionBudget, CPU autoscaling and pods
+  spread across nodes.
+- Startup, liveness and readiness probes on the management port. Readiness turns false as soon as shutdown
+  starts, and in-flight requests get 20 s to finish.
+- Non-root, read-only root filesystem, no Linux capabilities, no service account token.
+- A NetworkPolicy that exposes the management port (health and metrics) only to the monitoring namespace, plus an
+  optional Ingress and Prometheus Operator ServiceMonitor.
+- Configuration from `values.yaml` (`config`) and secrets from an existing Secret (`existingSecret`, e.g. synced by
+  External Secrets) or from `secrets`.
+
+Local cluster with [kind](https://kind.sigs.k8s.io/) (requires docker, kind, kubectl and helm):
+
+```bash
+./deploy/kind/up.sh
+kubectl -n paywallet port-forward svc/paywallet 8080:8080
+```
+
+The script builds the image, loads it into the cluster, starts single-instance data stores
+(`deploy/kind/dependencies.yaml`), installs the chart with `deploy/kind/values-kind.yaml`, and runs `helm test`.
+It also generates the JWT signing key once and keeps it in the release Secret, so every replica accepts the
+tokens issued by the others, and tags the image by content so running it again after a change rolls out the new
+build. Remove everything with `kind delete cluster --name paywallet`.
+
+The *Container and chart* workflow lints the chart and validates the rendered manifests against the Kubernetes
+schemas, builds the image and fails on fixable critical vulnerabilities (Trivy), and deploys it to a kind cluster.
+On `main`, the image is published to `ghcr.io/dedezza1d/paywallet` tagged with the commit.
+
 ## API
 
 | Method | Path | Auth | Description |
@@ -667,3 +698,7 @@ curl -k -X POST $API/transfer -H "Authorization: Bearer $TOKEN" -H "Content-Type
   that asks for the second factor on unusual outflows, resetting a forgotten PIN through an email code,
   encrypting the counterparty identifiers (documents and Pix keys) kept by the antifraud tables, and a secret
   manager instead of the development secrets in `docker-compose.yml`.
+- Kubernetes still missing: scheduled jobs run on every replica (they are idempotent and claim work with
+  `SKIP LOCKED`, but a lock such as ShedLock would avoid the duplicate scans), autoscaling on queue depth instead
+  of CPU, TLS to Kafka and the databases in the kind setup, and GitOps delivery (Argo CD or Flux) of the published
+  image. kind's default network plugin does not enforce NetworkPolicy.

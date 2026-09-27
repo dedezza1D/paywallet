@@ -1,0 +1,5 @@
+PayWallet {{ .Chart.AppVersion }} is deployed as {{ include "paywallet.fullname" . }}.
+
+API:        {{ if .Values.ingress.enabled }}https://{{ .Values.ingress.host }}{{ else }}kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "paywallet.fullname" . }} 8080:{{ .Values.service.port }}{{ end }}
+Health:     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "paywallet.fullname" . }} 8081:{{ .Values.service.managementPort }}
+Smoke test: helm test {{ .Release.Name }} -n {{ .Release.Namespace }}

@@ -1,0 +1,88 @@
+image:
+  repository: ghcr.io/dedezza1d/paywallet
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 768Mi
+  limits:
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+service:
+  type: ClusterIP
+  port: 8080
+  managementPort: 8081
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: api.paywallet.example
+  # Name of the TLS secret for the host; empty = no TLS section (terminated elsewhere).
+  tlsSecretName: ""
+
+networkPolicy:
+  enabled: true
+  # Namespaces allowed to reach the API port; empty = any pod in the cluster (e.g. the ingress controller).
+  apiFromNamespaces: []
+  # Namespaces allowed to reach the management port (health probes come from the kubelet and are not affected).
+  managementFromNamespaces:
+    - monitoring
+
+serviceMonitor:
+  # Requires the Prometheus Operator CRDs.
+  enabled: false
+  interval: 30s
+
+# Non-secret settings, passed as environment variables (see application.yml for every option).
+config:
+  DB_URL: jdbc:postgresql://postgres:5432/paywallet?sslmode=verify-full
+  DB_USER: paywallet
+  REDIS_HOST: redis
+  MONGO_URI: mongodb://mongo:27017/paywallet
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  S3_BUCKET: paywallet-private
+  S3_CREATE_BUCKET: "false"
+  KMS_MASTER_KEY_ALIAS: alias/paywallet-pii
+  KMS_CREATE_MASTER_KEY: "false"
+  SMTP_HOST: smtp
+  SMTP_PORT: "587"
+  PAYMENT_LINK_BASE_URL: https://api.paywallet.example/pay/
+  # Requests arrive through the ingress controller, which sets X-Forwarded-*.
+  FORWARD_HEADERS_STRATEGY: native
+  OTLP_TRACING_EXPORT_ENABLED: "false"
+  TRACING_SAMPLING_PROBABILITY: "0.1"
+  LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+
+# Secret settings. Prefer an existing Secret created by a secret manager (External Secrets, Sealed Secrets...);
+# the chart only creates one from `secrets` when `existingSecret` is empty.
+existingSecret: ""
+secrets: {}
+  # DB_PASSWORD:
+  # JWT_PRIVATE_KEY:
+  # PIX_WEBHOOK_SECRET:
+  # CARD_WEBHOOK_SECRET:
+  # VOUCHER_KEY:
+  # AUTH_CODE_PEPPER:
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

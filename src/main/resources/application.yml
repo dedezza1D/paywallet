@@ -45,12 +45,17 @@ spring:
     host: ${SMTP_HOST:localhost}
     port: ${SMTP_PORT:1025}
 
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
   servlet:
     multipart:
       max-file-size: 10MB
       max-request-size: 11MB
 
 server:
+  # Finishes in-flight requests before stopping (rolling updates, scale-in).
+  shutdown: graceful
   # "framework" when behind a TLS-terminating proxy, so redirects and links use https. Only trust the headers when
   # every request comes through the proxy: a client reaching the app directly could forge them.
   forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
@@ -193,6 +198,11 @@ management:
   # Kept off the public API port: metrics reveal business volumes.
   server:
     port: ${MANAGEMENT_PORT:8081}
+  endpoint:
+    health:
+      # /actuator/health/liveness and /readiness for Kubernetes probes.
+      probes:
+        enabled: true
   endpoints:
     web:
       exposure:
