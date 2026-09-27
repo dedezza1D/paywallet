@@ -56,11 +56,11 @@ services:
       interval: 10s
       retries: 12
 
-  # Local S3 emulator; production uses real AWS S3 with no custom endpoint.
+  # Local AWS emulator (S3 and KMS); production uses the real services with no custom endpoint.
   s3:
     image: localstack/localstack:4.4
     environment:
-      SERVICES: s3
+      SERVICES: s3,kms
       S3_SKIP_SIGNATURE_VALIDATION: "0"
     ports:
       - "4566:4566"
@@ -88,6 +88,7 @@ services:
       REDIS_HOST: redis
       MONGO_URI: mongodb://mongo:27017/paywallet
       S3_ENDPOINT: http://s3:4566
+      KMS_ENDPOINT: http://s3:4566
       # Presigned URLs must point to a host the client can reach.
       S3_PUBLIC_ENDPOINT: http://localhost:4566
       # Development only: users may simulate deposits into their own wallet.
@@ -96,13 +97,36 @@ services:
       CARD_WEBHOOK_SECRET: dev-only-card-webhook-secret
       # Development only: encrypts gift card codes at rest.
       VOUCHER_KEY: mVA0yS2utY5uFJAj5mDvHGqvZCT8bhlSXbz079HZL9o=
+      PAYMENT_LINK_BASE_URL: https://localhost/pay/
+      FORWARD_HEADERS_STRATEGY: framework
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      # Development only: HMAC key for the one-time codes sent by email.
+      AUTH_CODE_PEPPER: dev-only-code-pepper
       OTLP_TRACING_EXPORT_ENABLED: "true"
       OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
       LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+    # The API is only reachable through Caddy (HTTPS).
     ports:
-      - "8080:8080"
       # Management port (health, metrics). Published for local development only; keep it private elsewhere.
       - "8081:8081"
+
+  caddy:
+    image: caddy:2.10-alpine
+    depends_on:
+      - app
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+    ports:
+      - "80:80"
+      - "443:443"
+
+  # Local mailbox: every email the application sends shows up at http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8025:8025"
 
   tempo:
     image: grafana/tempo:2.8.0
@@ -140,3 +164,4 @@ services:
 volumes:
   pgdata:
   mongodata:
+  caddydata:

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import br.com.paywallet.auth.AuthDtos.TokenResponse;
 import br.com.paywallet.auth.RefreshTokenService.IssuedRefreshToken;
+import br.com.paywallet.exception.EmailNotVerifiedException;
 import br.com.paywallet.exception.InvalidCredentialsException;
 import br.com.paywallet.exception.InvalidRefreshTokenException;
 import br.com.paywallet.user.User;
@@ -49,6 +50,9 @@ public class AuthService {
             throw new InvalidCredentialsException();
         }
         limiter.reset(normalized);
+        if (!user.get().isEmailVerified()) {
+            throw new EmailNotVerifiedException();
+        }
         return respond(user.get(), refreshTokens.startFamily(user.get().getId()));
     }
 

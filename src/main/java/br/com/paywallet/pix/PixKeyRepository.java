@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 interface PixKeyRepository extends JpaRepository<PixKey, UUID> {
 
-    Optional<PixKey> findByValue(String value);
+    Optional<PixKey> findByValueIndex(String valueIndex);
 
     List<PixKey> findByUserIdOrderByCreatedAt(Long userId);
 

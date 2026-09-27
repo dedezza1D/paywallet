@@ -2,7 +2,9 @@ package br.com.paywallet.user;
 
 import java.time.Instant;
 
+import br.com.paywallet.crypto.EncryptedString;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -23,8 +25,12 @@ public class User {
     @Column(name = "full_name", nullable = false)
     private String fullName;
 
-    @Column(nullable = false, unique = true, length = 14)
+    @Convert(converter = EncryptedString.class)
+    @Column(nullable = false)
     private String document;
+
+    @Column(name = "document_index", unique = true, length = 64)
+    private String documentIndex;
 
     @Column(nullable = false, unique = true)
     private String email;
@@ -43,15 +49,38 @@ public class User {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
+
+    @Column(name = "password_changed_at")
+    private Instant passwordChangedAt;
+
     protected User() {
     }
 
-    public User(String fullName, String document, String email, String password, UserType type) {
+    public User(String fullName, String document, String documentIndex, String email, String password,
+                UserType type) {
         this.fullName = fullName;
         this.document = document;
+        this.documentIndex = documentIndex;
         this.email = email;
         this.password = password;
         this.type = type;
+    }
+
+    public void verifyEmail(Instant now) {
+        if (emailVerifiedAt == null) {
+            emailVerifiedAt = now;
+        }
+    }
+
+    public void changePassword(String passwordHash, Instant now) {
+        this.password = passwordHash;
+        this.passwordChangedAt = now;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerifiedAt != null;
     }
 
     public Long getId() { return id; }
@@ -62,4 +91,6 @@ public class User {
     public UserType getType() { return type; }
     public Role getRole() { return role; }
     public Instant getCreatedAt() { return createdAt; }
+    public Instant getEmailVerifiedAt() { return emailVerifiedAt; }
+    public Instant getPasswordChangedAt() { return passwordChangedAt; }
 }

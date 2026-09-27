@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import br.com.paywallet.crypto.FieldCipher;
 import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.exception.NotFoundException;
 import br.com.paywallet.exception.TooManyRequestsException;
@@ -28,16 +29,18 @@ public class PixKeyService {
     private final UserService users;
     private final PixGateway gateway;
     private final PartnerCalls partners;
+    private final FieldCipher cipher;
     private final PixProperties props;
     private final StringRedisTemplate redis;
     private final Clock clock;
 
     public PixKeyService(PixKeyRepository keys, UserService users, PixGateway gateway, PartnerCalls partners,
-                         PixProperties props, StringRedisTemplate redis, Clock clock) {
+                         FieldCipher cipher, PixProperties props, StringRedisTemplate redis, Clock clock) {
         this.keys = keys;
         this.users = users;
         this.gateway = gateway;
         this.partners = partners;
+        this.cipher = cipher;
         this.props = props;
         this.redis = redis;
         this.clock = clock;
@@ -86,10 +89,11 @@ public class PixKeyService {
         if (keys.countByUserId(userId) >= max) {
             throw new BusinessException("Pix key limit reached (%d)".formatted(max));
         }
-        if (keys.findByValue(value).isPresent()) {
+        String valueIndex = cipher.blindIndex(value);
+        if (keys.findByValueIndex(valueIndex).isPresent()) {
             throw new BusinessException("This Pix key is already registered");
         }
-        return keys.saveAndFlush(new PixKey(userId, type, value, clock.instant()));
+        return keys.saveAndFlush(new PixKey(userId, type, value, valueIndex, clock.instant()));
     }
 
     @Transactional(readOnly = true)
@@ -107,14 +111,14 @@ public class PixKeyService {
 
     @Transactional(readOnly = true)
     public Optional<PixKey> findLocal(String normalizedKey) {
-        return keys.findByValue(normalizedKey);
+        return keys.findByValueIndex(cipher.blindIndex(normalizedKey));
     }
 
     @Transactional(readOnly = true)
     public Destination resolve(String rawKey) {
         PixKeyType type = PixKeyType.detect(rawKey);
         String key = type.normalize(rawKey);
-        return keys.findByValue(key)
+        return keys.findByValueIndex(cipher.blindIndex(key))
                 .map(k -> new Destination(type, key, k.getUserId(), null))
                 .or(() -> partners.call("pix-psp", "dict-lookup", () -> gateway.lookup(key))
                         .map(account -> new Destination(type, key, null, account)))

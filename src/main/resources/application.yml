@@ -41,10 +41,19 @@ spring:
     consumer:
       auto-offset-reset: earliest
 
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+
   servlet:
     multipart:
       max-file-size: 10MB
       max-request-size: 11MB
+
+server:
+  # "framework" when behind a TLS-terminating proxy, so redirects and links use https. Only trust the headers when
+  # every request comes through the proxy: a client reaching the app directly could forge them.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
 
 app:
   security:
@@ -58,6 +67,15 @@ app:
     login-max-attempts: 5
     login-lock-duration: 15m
     allow-self-deposit: ${ALLOW_SELF_DEPOSIT:false}
+    codes:
+      ttl: 15m
+      max-attempts: 5
+      resend-cooldown: 60s
+      max-sends-per-hour: 5
+      # HMAC key for one-time codes. Empty = ephemeral key, development only.
+      pepper: ${AUTH_CODE_PEPPER:}
+  mail:
+    from: ${MAIL_FROM:PayWallet <no-reply@paywallet.local>}
   external:
     authorizer-url: ${AUTHORIZER_URL:https://util.devi.tools/api/v2/authorize}
     notifier-url: ${NOTIFIER_URL:https://util.devi.tools/api/v1/notify}
@@ -144,6 +162,13 @@ app:
   limits:
     daily-transfer: ${DAILY_TRANSFER_LIMIT:5000.00}
     zone: America/Sao_Paulo
+  crypto:
+    kms-endpoint: ${KMS_ENDPOINT:http://localhost:4566}
+    region: ${KMS_REGION:us-east-1}
+    access-key: ${KMS_ACCESS_KEY:test}
+    secret-key: ${KMS_SECRET_KEY:test}
+    master-key-alias: ${KMS_MASTER_KEY_ALIAS:alias/paywallet-pii}
+    create-master-key: ${KMS_CREATE_MASTER_KEY:true}
   storage:
     endpoint: ${S3_ENDPOINT:http://localhost:4566}
     public-endpoint: ${S3_PUBLIC_ENDPOINT:}
