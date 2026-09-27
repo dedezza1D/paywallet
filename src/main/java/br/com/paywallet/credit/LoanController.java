@@ -22,8 +22,11 @@ import br.com.paywallet.credit.CreditDtos.InstallmentPaymentResponse;
 import br.com.paywallet.credit.CreditDtos.LoanQuoteResponse;
 import br.com.paywallet.credit.CreditDtos.LoanRequest;
 import br.com.paywallet.credit.CreditDtos.LoanResponse;
+import br.com.paywallet.credit.CreditDtos.PrepaymentQuote;
+import br.com.paywallet.credit.CreditDtos.PrepaymentRequest;
 import br.com.paywallet.credit.LoanService.CollectionResult;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 
 @RestController
@@ -73,6 +76,24 @@ public class LoanController {
     public InstallmentPaymentResponse pay(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
                                           @PathVariable int number) {
         return loans.pay(userId(jwt), id, number);
+    }
+
+    @GetMapping("/loans/{id}/prepayment")
+    public PrepaymentQuote prepaymentQuote(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                           @RequestParam(required = false) @Min(1) Integer installments) {
+        return loans.prepaymentQuote(userId(jwt), id, installments);
+    }
+
+    @PostMapping("/loans/{id}/prepayment")
+    public ResponseEntity<LoanResponse> prepay(
+            @AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+            @RequestHeader("Idempotency-Key") @Pattern(regexp = "[A-Za-z0-9_-]{8,100}") String idempotencyKey,
+            @Valid @RequestBody(required = false) PrepaymentRequest req) {
+        var result = loans.prepay(userId(jwt), id, req == null ? null : req.installments(), idempotencyKey);
+        if (result.replayed()) {
+            return ResponseEntity.ok().header("Idempotent-Replayed", "true").body(result.loan());
+        }
+        return ResponseEntity.ok(result.loan());
     }
 
     /** Operations: run the installment collection for a date (normally done by the daily job). */

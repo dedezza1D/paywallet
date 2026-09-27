@@ -1,21 +1,26 @@
 package br.com.paywallet.card;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.math.RoundingMode;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import br.com.paywallet.card.CardDtos.ClosingResult;
+import br.com.paywallet.card.CardDtos.InstallmentOption;
 import br.com.paywallet.card.CardDtos.StatementPaymentResult;
 import br.com.paywallet.card.CardDtos.StatementResponse;
 import br.com.paywallet.exception.BusinessException;
@@ -36,6 +41,8 @@ import br.com.paywallet.ledger.Money;
 public class CardStatementService {
 
     private static final Logger log = LoggerFactory.getLogger(CardStatementService.class);
+    private static final int MIN_INSTALLMENTS = 2;
+    private static final int MAX_INSTALLMENTS = 12;
 
     private record Outcome(int closed, int carried) {
     }
@@ -47,12 +54,14 @@ public class CardStatementService {
     private final LedgerService ledger;
     private final BalanceCache balanceCache;
     private final TransactionTemplate transactions;
+    private final JdbcTemplate jdbc;
     private final CardProperties props;
     private final Clock clock;
 
     public CardStatementService(CardRepository cards, CardStatementRepository statements, CardCharges charges,
                                 CardService cardService, LedgerService ledger, BalanceCache balanceCache,
-                                TransactionTemplate transactions, CardProperties props, Clock clock) {
+                                TransactionTemplate transactions, JdbcTemplate jdbc, CardProperties props,
+                                Clock clock) {
         this.cards = cards;
         this.statements = statements;
         this.charges = charges;
@@ -60,6 +69,7 @@ public class CardStatementService {
         this.ledger = ledger;
         this.balanceCache = balanceCache;
         this.transactions = transactions;
+        this.jdbc = jdbc;
         this.props = props;
         this.clock = clock;
     }
@@ -170,6 +180,73 @@ public class CardStatementService {
         }
         balanceCache.evict(userId);
         return new StatementPaymentResult(paid, false);
+    }
+
+    @Transactional(readOnly = true)
+    public List<InstallmentOption> installmentOptions(Long userId, UUID cardId, UUID statementId) {
+        cardService.owned(userId, cardId);
+        var statement = statement(cardId, statementId);
+        requireOpen(statement);
+        List<InstallmentOption> options = new ArrayList<>();
+        for (int n = MIN_INSTALLMENTS; n <= MAX_INSTALLMENTS; n++) {
+            long installment = installmentAmount(statement.remaining(), n);
+            options.add(new InstallmentOption(n, Money.fromCents(installment), Money.fromCents(installment * n),
+                    props.installmentMonthlyPercent()));
+        }
+        return options;
+    }
+
+    /**
+     * Replaces what is owed on an open statement with equal monthly installments (Price table), billed from the
+     * next statement on. The plan's interest is booked as income when it is agreed.
+     */
+    public StatementResponse finance(Long userId, UUID cardId, UUID statementId, int installments) {
+        return transactions.execute(status -> {
+            var card = cards.lockById(cardId).filter(c -> c.getUserId().equals(userId))
+                    .orElseThrow(() -> new NotFoundException("Card not found"));
+            var statement = statement(card.getId(), statementId);
+            requireOpen(statement);
+            long financed = statement.remaining();
+            long installment = installmentAmount(financed, installments);
+            long total = installment * installments;
+            var now = clock.instant();
+            LocalDate today = LocalDate.now(clock.withZone(props.zone()));
+            if (total > financed) {
+                ledger.post(new PostCommand(LedgerTransactionType.CARD_STATEMENT_FINANCING,
+                        "card-financing:" + statementId, "Statement installment plan interest",
+                        List.of(Leg.debit(AccountType.CARD_RECEIVABLES_ACCOUNT_ID, total - financed),
+                                Leg.credit(AccountType.INTEREST_INCOME_ACCOUNT_ID, total - financed))));
+            }
+            for (int k = 1; k <= installments; k++) {
+                charges.add(card.getId(), null, "Statement installment", installment, k, installments,
+                        today.plusMonths(k - 1), now);
+            }
+            jdbc.update("""
+                    INSERT INTO card_statement_plans (statement_id, installments, monthly_rate, financed,
+                                                      installment_amount, total, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, statementId, installments, rate(), financed, installment, total, Timestamp.from(now));
+            statement.finance();
+            return response(statement);
+        });
+    }
+
+    private long installmentAmount(long financed, int installments) {
+        BigDecimal i = rate();
+        BigDecimal factor = BigDecimal.ONE.subtract(BigDecimal.ONE.divide(BigDecimal.ONE.add(i).pow(installments),
+                MathContext.DECIMAL64));
+        return BigDecimal.valueOf(financed).multiply(i).divide(factor, MathContext.DECIMAL64)
+                .setScale(0, RoundingMode.HALF_UP).longValueExact();
+    }
+
+    private BigDecimal rate() {
+        return props.installmentMonthlyPercent().divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP);
+    }
+
+    private static void requireOpen(CardStatement statement) {
+        if (statement.getStatus() != CardStatement.Status.OPEN || statement.remaining() <= 0) {
+            throw new BusinessException("Only open statements with an amount owed can be split into installments");
+        }
     }
 
     private StatementPaymentResult replay(Long userId, UUID cardId, UUID statementId, String recorded,

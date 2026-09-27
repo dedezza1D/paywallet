@@ -10,6 +10,7 @@ import java.util.UUID;
 import br.com.paywallet.ledger.Money;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
 /** Rates are shown in percent (3.49 means 3.49% a month). */
@@ -35,8 +36,10 @@ public final class CreditDtos {
             @NotNull Integer installments) {
     }
 
+    /** {@code discount}: interest not charged because the installment was paid early. */
     public record ScheduleEntry(int number, LocalDate dueDate, BigDecimal amount, BigDecimal principal,
-                                BigDecimal interest, String status, BigDecimal lateCharges, Instant paidAt) {
+                                BigDecimal interest, String status, BigDecimal lateCharges, BigDecimal discount,
+                                Instant paidAt) {
     }
 
     /** What the customer sees before signing: the regulation requires the CET alongside the nominal rate. */
@@ -51,7 +54,7 @@ public final class CreditDtos {
                     percent(q.cetMonthly()), percent(q.cetAnnual()),
                     q.schedule().stream().map(i -> new ScheduleEntry(i.number(), i.dueDate(),
                             Money.fromCents(i.amount()), Money.fromCents(i.principal()),
-                            Money.fromCents(i.interest()), null, null, null)).toList());
+                            Money.fromCents(i.interest()), null, null, null, null)).toList());
         }
     }
 
@@ -66,6 +69,14 @@ public final class CreditDtos {
 
     public record InstallmentPaymentResponse(UUID loanId, int number, BigDecimal amount, BigDecimal lateCharges,
                                              BigDecimal total, Instant paidAt, Loan.Status loanStatus) {
+    }
+
+    /** Without {@code installments}, pays off the whole loan. */
+    public record PrepaymentRequest(@Min(1) Integer installments) {
+    }
+
+    public record PrepaymentQuote(UUID loanId, List<Integer> installments, BigDecimal nominal, BigDecimal discount,
+                                  BigDecimal lateCharges, BigDecimal total) {
     }
 
     static BigDecimal percent(BigDecimal fraction) {

@@ -27,6 +27,7 @@ import br.com.paywallet.credit.CreditDtos.LoanQuoteResponse;
 import br.com.paywallet.credit.CreditDtos.LoanRequest;
 import br.com.paywallet.credit.CreditDtos.LoanResponse;
 import br.com.paywallet.credit.CreditDtos.LoanResult;
+import br.com.paywallet.credit.CreditDtos.PrepaymentQuote;
 import br.com.paywallet.credit.CreditDtos.ScheduleEntry;
 import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.exception.InsufficientFundsException;
@@ -82,7 +83,7 @@ public class LoanService {
     }
 
     private record InstallmentRow(int number, LocalDate dueDate, long amount, long principal, long interest,
-                                  String status, Long lateCharges, Instant paidAt) {
+                                  String status, Long lateCharges, Long discount, Instant paidAt) {
     }
 
     public record CollectionResult(LocalDate date, int paid, int overdue) {
@@ -284,6 +285,115 @@ public class LoanService {
         return outstanding == null ? 0 : outstanding;
     }
 
+    public PrepaymentQuote prepaymentQuote(Long userId, UUID loanId, Integer count) {
+        var loan = loans.findByIdAndUserId(loanId, userId).orElseThrow(() -> new NotFoundException("Loan not found"));
+        return prepayment(loan, count, today()).quote(loan.getId());
+    }
+
+    /**
+     * Pays the next {@code count} unpaid installments now, or all of them to pay off the loan. Installments not yet
+     * due are discounted to present value; overdue ones carry their late charges.
+     */
+    public LoanResult prepay(Long userId, UUID loanId, Integer count, String idempotencyKey) {
+        String key = "loan-prepayment:%d:%s".formatted(userId, idempotencyKey);
+        if (ledger.findByIdempotencyKey(key).isPresent()) {
+            return new LoanResult(get(userId, loanId), true);
+        }
+        try {
+            transactions.executeWithoutResult(status -> {
+                var loan = loans.lockById(loanId).filter(l -> l.getUserId().equals(userId))
+                        .orElseThrow(() -> new NotFoundException("Loan not found"));
+                var plan = prepayment(loan, count, today());
+                long principal = plan.principal();
+                var legs = new ArrayList<Leg>();
+                legs.add(Leg.debit(ledger.walletOf(userId).getId(), plan.total()));
+                legs.add(Leg.credit(AccountType.LOAN_PRINCIPAL_ACCOUNT_ID, principal));
+                if (plan.total() > principal) {
+                    legs.add(Leg.credit(AccountType.INTEREST_INCOME_ACCOUNT_ID, plan.total() - principal));
+                }
+                var tx = ledger.post(new PostCommand(LedgerTransactionType.LOAN_PREPAYMENT, key,
+                        "Loan prepayment of %d installments".formatted(plan.lines().size()), legs));
+                Instant now = clock.instant();
+                for (var line : plan.lines()) {
+                    jdbc.update("""
+                            UPDATE loan_installments
+                               SET status = 'PAID', late_charges = ?, discount = ?, paid_at = ?,
+                                   ledger_transaction_id = ?
+                             WHERE loan_id = ? AND number = ?
+                            """, line.late(), line.discount(), Timestamp.from(now), tx.getId(), loanId, line.number());
+                }
+                Integer unpaid = jdbc.queryForObject(
+                        "SELECT count(*) FROM loan_installments WHERE loan_id = ? AND status <> 'PAID'", Integer.class,
+                        loanId);
+                if (unpaid != null && unpaid == 0) {
+                    loan.payOff(now);
+                }
+            });
+        } catch (DataIntegrityViolationException e) {
+            if (ledger.findByIdempotencyKey(key).isPresent()) {
+                return new LoanResult(get(userId, loanId), true);
+            }
+            throw e;
+        }
+        balanceCache.evict(userId);
+        return new LoanResult(get(userId, loanId), false);
+    }
+
+    private record PrepaymentLine(int number, long amount, long discount, long late) {
+    }
+
+    private record Prepayment(List<PrepaymentLine> lines, long principal) {
+
+        long nominal() {
+            return lines.stream().mapToLong(PrepaymentLine::amount).sum();
+        }
+
+        long discount() {
+            return lines.stream().mapToLong(PrepaymentLine::discount).sum();
+        }
+
+        long late() {
+            return lines.stream().mapToLong(PrepaymentLine::late).sum();
+        }
+
+        long total() {
+            return nominal() - discount() + late();
+        }
+
+        PrepaymentQuote quote(UUID loanId) {
+            return new PrepaymentQuote(loanId, lines.stream().map(PrepaymentLine::number).toList(),
+                    Money.fromCents(nominal()), Money.fromCents(discount()), Money.fromCents(late()),
+                    Money.fromCents(total()));
+        }
+    }
+
+    /**
+     * The next installments in order. A discount never exceeds the installment's interest, so the principal they
+     * cover is always paid.
+     */
+    private Prepayment prepayment(Loan loan, Integer count, LocalDate today) {
+        var unpaid = installments(loan.getId()).stream().filter(r -> !"PAID".equals(r.status())).toList();
+        if (unpaid.isEmpty()) {
+            throw new BusinessException("Loan already paid off");
+        }
+        int n = count == null ? unpaid.size() : count;
+        if (n < 1 || n > unpaid.size()) {
+            throw new BusinessException("Choose between 1 and %d installments".formatted(unpaid.size()));
+        }
+        var lines = new ArrayList<PrepaymentLine>();
+        long principal = 0;
+        for (var row : unpaid.subList(0, n)) {
+            long days = ChronoUnit.DAYS.between(today, row.dueDate());
+            long late = days < 0 ? LoanMath.lateCharges(row.amount(), -days, props.lateFinePercent(),
+                    props.lateMonthlyInterestPercent()) : 0;
+            long discount = Math.min(row.interest(),
+                    row.amount() - LoanMath.presentValue(row.amount(), loan.getMonthlyRate(), days));
+            lines.add(new PrepaymentLine(row.number(), row.amount(), discount, late));
+            principal += row.principal();
+        }
+        return new Prepayment(lines, principal);
+    }
+
     private InstallmentRow installment(UUID loanId, int number) {
         return installments(loanId).stream().filter(i -> i.number() == number).findFirst()
                 .orElseThrow(() -> new NotFoundException("Installment not found"));
@@ -291,11 +401,11 @@ public class LoanService {
 
     private List<InstallmentRow> installments(UUID loanId) {
         return jdbc.query("""
-                SELECT number, due_date, amount, principal, interest, status, late_charges, paid_at
+                SELECT number, due_date, amount, principal, interest, status, late_charges, discount, paid_at
                   FROM loan_installments WHERE loan_id = ? ORDER BY number
                 """, (rs, i) -> new InstallmentRow(rs.getInt(1), rs.getObject(2, LocalDate.class), rs.getLong(3),
-                rs.getLong(4), rs.getLong(5), rs.getString(6), (Long) rs.getObject(7),
-                rs.getTimestamp(8) == null ? null : rs.getTimestamp(8).toInstant()), loanId);
+                rs.getLong(4), rs.getLong(5), rs.getString(6), (Long) rs.getObject(7), (Long) rs.getObject(8),
+                rs.getTimestamp(9) == null ? null : rs.getTimestamp(9).toInstant()), loanId);
     }
 
     private LoanResponse response(Loan loan) {
@@ -307,7 +417,8 @@ public class LoanService {
                 loan.getInstallments(), Money.fromCents(outstanding), loan.getCreatedAt(), loan.getPaidOffAt(),
                 rows.stream().map(r -> new ScheduleEntry(r.number(), r.dueDate(), Money.fromCents(r.amount()),
                         Money.fromCents(r.principal()), Money.fromCents(r.interest()), r.status(),
-                        r.lateCharges() == null ? null : Money.fromCents(r.lateCharges()), r.paidAt())).toList());
+                        r.lateCharges() == null ? null : Money.fromCents(r.lateCharges()),
+                        r.discount() == null ? null : Money.fromCents(r.discount()), r.paidAt())).toList());
     }
 
     private InstallmentPaymentResponse paymentResponse(Loan loan, InstallmentRow row) {

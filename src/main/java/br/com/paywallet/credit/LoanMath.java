@@ -96,6 +96,19 @@ final class LoanMath {
     }
 
     /** Fine on the installment plus default interest pro rata per day (monthly rate / 30). */
+    /**
+     * Value today of an installment paid before its due date. The consumer protection code (CDC art. 52) requires
+     * a proportional reduction of interest, applied by discounting at the contract rate over days/30 months.
+     */
+    static long presentValue(long amount, BigDecimal monthlyRate, long daysUntilDue) {
+        if (daysUntilDue <= 0) {
+            return amount;
+        }
+        double factor = Math.pow(1 + monthlyRate.doubleValue(), daysUntilDue / 30.0);
+        return BigDecimal.valueOf(amount).divide(BigDecimal.valueOf(factor), MC)
+                .setScale(0, RoundingMode.HALF_UP).longValueExact();
+    }
+
     static long lateCharges(long installmentAmount, long daysLate, BigDecimal finePercent, BigDecimal monthlyInterestPercent) {
         if (daysLate <= 0) {
             return 0;

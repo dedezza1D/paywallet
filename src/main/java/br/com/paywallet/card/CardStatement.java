@@ -13,13 +13,14 @@ import jakarta.persistence.Table;
 
 /**
  * A closed credit card bill. OPEN while something is owed, PAID when settled in full, CARRIED when its unpaid
- * remainder moved to the next statement with revolving interest. Amounts are in cents.
+ * remainder moved to the next statement with revolving interest, FINANCED when split into installments billed on
+ * the following statements. Amounts are in cents.
  */
 @Entity
 @Table(name = "card_statements")
 public class CardStatement {
 
-    public enum Status { OPEN, PAID, CARRIED }
+    public enum Status { OPEN, PAID, CARRIED, FINANCED }
 
     @Id
     private UUID id;
@@ -43,7 +44,7 @@ public class CardStatement {
     private long paid;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 7)
+    @Column(nullable = false, length = 8)
     private Status status;
 
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -77,6 +78,10 @@ public class CardStatement {
 
     void carry() {
         status = Status.CARRIED;
+    }
+
+    void finance() {
+        status = Status.FINANCED;
     }
 
     public UUID getId() { return id; }

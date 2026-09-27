@@ -53,6 +53,15 @@ class LoanMathTest {
     }
 
     @Test
+    void earlyInstallmentsAreDiscountedAtTheContractRate() {
+        // R$ 100.00 due in 30 days at 3.49% a month: 100 / 1.0349 = 96.63; due in 45 days: 100 / 1.0349^1.5 = 94.98
+        assertThat(LoanMath.presentValue(10_000, RATE, 30)).isEqualTo(9_663);
+        assertThat(LoanMath.presentValue(10_000, RATE, 45)).isEqualTo(9_498);
+        assertThat(LoanMath.presentValue(10_000, RATE, 0)).isEqualTo(10_000);
+        assertThat(LoanMath.presentValue(10_000, RATE, -5)).isEqualTo(10_000);
+    }
+
+    @Test
     void lateChargesAreAFineAndDailyDefaultInterest() {
         // R$ 100.00, 15 days late: 2% fine (2.00) + 1%/month * 15/30 (0.50)
         assertThat(LoanMath.lateCharges(10_000, 15, new BigDecimal("2"), new BigDecimal("1"))).isEqualTo(250);
