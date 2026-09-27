@@ -51,6 +51,14 @@ public final class CardDtos {
     public record StatementPaymentResult(StatementResponse statement, boolean replayed) {
     }
 
+    /** {@code monthlyRate} in percent. */
+    public record InstallmentOption(int installments, BigDecimal installmentAmount, BigDecimal total,
+                                    BigDecimal monthlyRate) {
+    }
+
+    public record FinanceStatementRequest(@NotNull @Min(2) @Max(12) Integer installments) {
+    }
+
     public record ClosingResult(LocalDate date, int closed, int carried) {
     }
 

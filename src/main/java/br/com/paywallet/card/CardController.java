@@ -25,6 +25,8 @@ import br.com.paywallet.card.CardDtos.CardResponse;
 import br.com.paywallet.card.CardDtos.ClosingResult;
 import br.com.paywallet.card.CardDtos.DisputeRequest;
 import br.com.paywallet.card.CardDtos.DisputeResponse;
+import br.com.paywallet.card.CardDtos.FinanceStatementRequest;
+import br.com.paywallet.card.CardDtos.InstallmentOption;
 import br.com.paywallet.card.CardDtos.IssueCardRequest;
 import br.com.paywallet.card.CardDtos.StatementPaymentRequest;
 import br.com.paywallet.card.CardDtos.StatementResponse;
@@ -102,6 +104,19 @@ public class CardController {
     public StatementResponse statement(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
                                        @PathVariable UUID statementId) {
         return statements.get(userId(jwt), id, statementId);
+    }
+
+    @GetMapping("/cards/{id}/statements/{statementId}/installment-options")
+    public List<InstallmentOption> installmentOptions(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                                      @PathVariable UUID statementId) {
+        return statements.installmentOptions(userId(jwt), id, statementId);
+    }
+
+    @PostMapping("/cards/{id}/statements/{statementId}/installment-plan")
+    public StatementResponse finance(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID id,
+                                     @PathVariable UUID statementId,
+                                     @Valid @RequestBody FinanceStatementRequest req) {
+        return statements.finance(userId(jwt), id, statementId, req.installments());
     }
 
     @PostMapping("/cards/{id}/statements/{statementId}/payment")

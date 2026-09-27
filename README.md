@@ -261,6 +261,11 @@ to the public requires an authorized institution (e.g. an SCD) or a partner bank
   1% a month of default interest (pro rata per day) are charged. Customers can also pay the oldest installment
   themselves (`POST /loans/{id}/installments/{n}/payment`); admins can run a collection with
   `POST /admin/loans/collections?date=`.
+- **Early repayment** (`GET` and `POST /loans/{id}/prepayment`, `Idempotency-Key`): pays the next N installments
+  now, or all of them to pay off the loan. As the consumer protection code (CDC art. 52) requires, installments not
+  yet due are discounted to present value at the contract rate over days/30 months, never by more than their own
+  interest, so the principal is always settled; overdue installments carry their late charges instead. Principal
+  returns to `SYSTEM_LOAN_PRINCIPAL` and the rest goes to `SYSTEM_INTEREST_INCOME`.
 
 ## Cards
 
@@ -294,6 +299,11 @@ an issuing partner; the processor sits behind the `CardProcessor` interface with
   booked in `SYSTEM_INTEREST_INCOME`, and the old statement becomes `CARRIED`. Customers pay all or part of an
   open statement from the wallet (`Idempotency-Key`); admins can close statements for a date with
   `POST /admin/cards/statements/close?date=`.
+- **Statement installments** (`GET /cards/{id}/statements/{sid}/installment-options`, then
+  `POST .../installment-plan`): an open statement can be split into 2 to 12 equal monthly installments (Price table
+  at 8.99% a month, `app.cards.installment-monthly-percent`). The statement becomes `FINANCED`, the installments
+  are billed from the next statement on and consume the limit, and the plan's interest is booked as income when it
+  is agreed.
 
 ## Marketplace and cashback
 
@@ -429,6 +439,8 @@ mvn test
 | GET | `/loans` | user | Own loans with their schedules |
 | GET | `/loans/{id}` | user | Loan details and installment status |
 | POST | `/loans/{id}/installments/{n}/payment` | user | Pay the oldest unpaid installment now |
+| GET | `/loans/{id}/prepayment?installments=` | user | Discounted amount to pay the next N installments (all by default) |
+| POST | `/loans/{id}/prepayment` | user | Pay the next N installments now, or pay off the loan (`installments`). Requires `Idempotency-Key` |
 | POST | `/admin/loans/collections?date=` | admin | Run the installment collection for a date |
 | POST | `/cards` | user | Issue a virtual `DEBIT` or `CREDIT` card (`closingDay` for credit) |
 | GET | `/cards` | user | Own cards, with limit and available limit for credit cards |
@@ -438,6 +450,8 @@ mvn test
 | GET | `/cards/{id}/transactions` | user | Paged purchase attempts, including declines |
 | GET | `/cards/{id}/statements` | user | Closed statements with their charges |
 | POST | `/cards/{id}/statements/{sid}/payment` | user | Pay all or part (`value`) of an open statement. Requires `Idempotency-Key` |
+| GET | `/cards/{id}/statements/{sid}/installment-options` | user | 2 to 12 installment options for an open statement |
+| POST | `/cards/{id}/statements/{sid}/installment-plan` | user | Split an open statement into installments (`installments`) |
 | POST | `/cards/webhooks/{authorizations,clearings,reversals}` | HMAC | Card processor events |
 | POST | `/admin/cards/statements/close?date=` | admin | Close the statements of cards whose closing day is `date` |
 | GET | `/marketplace/products?category=` | user | Gift cards and mobile recharges with values and cashback |
@@ -527,13 +541,12 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
 - Merchants still missing: MDR negotiated per merchant, webhooks notifying the merchant's own systems
   (e-commerce), receivables settlement schedules and anticipation, card acquiring and POS terminals. Charge QR codes
   are static BR Codes with a txid; true dynamic Pix QR codes point to a signed payload hosted by the PSP.
-- Loans still missing: a real bureau adapter, early repayment with the proportional interest discount required
-  by consumer law, renegotiation, payroll-deductible loans and FGTS anticipation, reporting to the central bank
-  credit registry (SCR), paying the withheld IOF to the government, and due dates moved to business days.
+- Loans still missing: a real bureau adapter, prepaying the last installments to shorten the term, renegotiation,
+  payroll-deductible loans and FGTS anticipation, reporting to the central bank credit registry (SCR), paying the
+  withheld IOF to the government, and due dates moved to business days.
 - Cards still missing: a real processor adapter, provisional credit while a dispute is open, late fees and IOF on
-  revolving credit, installment plans for an unpaid statement, limit changes, physical cards, wallet tokenization
-  (Apple Pay, Google Pay), 3-D Secure for online purchases, and notifications for purchases and closed
-  statements.
+  revolving credit and statement installments, limit changes, physical cards, wallet tokenization (Apple Pay,
+  Google Pay), 3-D Secure for online purchases, and notifications for purchases and closed statements.
 - Marketplace still missing: a real aggregator adapter, catalog management by admins, cashback campaigns with
   expiry or caps, cashback on merchant payments, redeeming cashback as a separate balance, and refunds of delivered
   products.
