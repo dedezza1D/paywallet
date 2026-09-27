@@ -16,10 +16,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.hotdata.DailyLimitService;
 import br.com.paywallet.ledger.AccountType;
-import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerService.Leg;
 import br.com.paywallet.ledger.LedgerService.PostCommand;
+import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerTransactionType;
+import br.com.paywallet.observability.PartnerCalls;
 import br.com.paywallet.pix.PixGateway.PixOrder;
 import br.com.paywallet.user.UserService;
 
@@ -36,6 +37,7 @@ class PixSettlementWorker {
 
     private final PixPaymentRepository payments;
     private final PixGateway gateway;
+    private final PartnerCalls partners;
     private final LedgerService ledger;
     private final UserService users;
     private final DailyLimitService limits;
@@ -43,11 +45,12 @@ class PixSettlementWorker {
     private final TransactionTemplate transactions;
     private final Clock clock;
 
-    PixSettlementWorker(PixPaymentRepository payments, PixGateway gateway, LedgerService ledger, UserService users,
-                        DailyLimitService limits, BalanceCache balanceCache, TransactionTemplate transactions,
-                        Clock clock) {
+    PixSettlementWorker(PixPaymentRepository payments, PixGateway gateway, PartnerCalls partners, LedgerService ledger,
+                        UserService users, DailyLimitService limits, BalanceCache balanceCache,
+                        TransactionTemplate transactions, Clock clock) {
         this.payments = payments;
         this.gateway = gateway;
+        this.partners = partners;
         this.ledger = ledger;
         this.users = users;
         this.limits = limits;
@@ -68,8 +71,9 @@ class PixSettlementWorker {
         var payer = users.get(payment.getPayerUserId());
         PixGateway.SubmitResult result;
         try {
-            result = gateway.submit(new PixOrder(payment.getEndToEndId(), payment.getKey(), payment.getAmount(),
-                    payer.getFullName(), payer.getDocument(), payment.getDescription()));
+            var order = new PixOrder(payment.getEndToEndId(), payment.getKey(), payment.getAmount(),
+                    payer.getFullName(), payer.getDocument(), payment.getDescription());
+            result = partners.call("pix-psp", "submit", () -> gateway.submit(order));
         } catch (RuntimeException e) {
             log.warn("Pix {} not submitted, will retry: {}", payment.getEndToEndId(), e.getMessage());
             payment.recordFailedAttempt(e.getMessage(), clock.instant());

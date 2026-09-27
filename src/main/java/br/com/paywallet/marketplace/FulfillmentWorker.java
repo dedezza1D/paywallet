@@ -16,12 +16,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.hotdata.DailyLimitService;
 import br.com.paywallet.ledger.AccountType;
-import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerService.Leg;
 import br.com.paywallet.ledger.LedgerService.PostCommand;
+import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerTransactionType;
 import br.com.paywallet.marketplace.MarketplaceProvider.FulfillmentOrder;
 import br.com.paywallet.messaging.Topics;
+import br.com.paywallet.observability.PartnerCalls;
 import br.com.paywallet.outbox.OutboxWriter;
 import br.com.paywallet.user.UserService;
 
@@ -39,6 +40,7 @@ class FulfillmentWorker {
     private final MarketplaceOrderRepository orders;
     private final ProductRepository products;
     private final MarketplaceProvider provider;
+    private final PartnerCalls partners;
     private final VoucherCipher cipher;
     private final LedgerService ledger;
     private final UserService users;
@@ -49,11 +51,13 @@ class FulfillmentWorker {
     private final Clock clock;
 
     FulfillmentWorker(MarketplaceOrderRepository orders, ProductRepository products, MarketplaceProvider provider,
-                      VoucherCipher cipher, LedgerService ledger, UserService users, DailyLimitService limits,
-                      BalanceCache balanceCache, OutboxWriter outbox, TransactionTemplate transactions, Clock clock) {
+                      PartnerCalls partners, VoucherCipher cipher, LedgerService ledger, UserService users,
+                      DailyLimitService limits, BalanceCache balanceCache, OutboxWriter outbox,
+                      TransactionTemplate transactions, Clock clock) {
         this.orders = orders;
         this.products = products;
         this.provider = provider;
+        this.partners = partners;
         this.cipher = cipher;
         this.ledger = ledger;
         this.users = users;
@@ -73,8 +77,9 @@ class FulfillmentWorker {
     private void deliver(MarketplaceOrder order) {
         MarketplaceProvider.FulfillmentResult result;
         try {
-            result = provider.fulfill(new FulfillmentOrder(order.getId().toString(), order.getProductId(),
-                    order.getAmount(), order.getPhoneNumber()));
+            var request = new FulfillmentOrder(order.getId().toString(), order.getProductId(), order.getAmount(),
+                    order.getPhoneNumber());
+            result = partners.call("marketplace-provider", "fulfill", () -> provider.fulfill(request));
         } catch (RuntimeException e) {
             log.warn("Order {} not delivered, will retry: {}", order.getId(), e.getMessage());
             order.recordFailedAttempt(e.getMessage(), clock.instant());

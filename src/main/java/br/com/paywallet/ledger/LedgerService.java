@@ -13,8 +13,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import br.com.paywallet.exception.NotFoundException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManager;
 
 /**
@@ -29,14 +33,16 @@ public class LedgerService {
     private final PostingRepository postings;
     private final EntityManager em;
     private final JdbcTemplate jdbc;
+    private final MeterRegistry meters;
 
     public LedgerService(AccountRepository accounts, LedgerTransactionRepository transactions,
-                         PostingRepository postings, EntityManager em, JdbcTemplate jdbc) {
+                         PostingRepository postings, EntityManager em, JdbcTemplate jdbc, MeterRegistry meters) {
         this.accounts = accounts;
         this.transactions = transactions;
         this.postings = postings;
         this.em = em;
         this.jdbc = jdbc;
+        this.meters = meters;
     }
 
     public record Leg(UUID accountId, Direction direction, long amount) {
@@ -100,7 +106,21 @@ public class LedgerService {
             long balanceAfter = account.apply(leg.direction(), leg.amount());
             em.persist(new Posting(tx, account, leg.direction(), leg.amount(), balanceAfter, now));
         }
+        countAfterCommit(cmd);
         return tx;
+    }
+
+    /** Movements by type and the money they moved, counted only once committed. */
+    private void countAfterCommit(PostCommand cmd) {
+        long amount = cmd.legs().stream().filter(l -> l.direction() == Direction.DEBIT).mapToLong(Leg::amount).sum();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                meters.counter("paywallet.ledger.transactions", "type", cmd.type().name()).increment();
+                Counter.builder("paywallet.ledger.amount").baseUnit("brl").tag("type", cmd.type().name())
+                        .register(meters).increment(amount / 100.0);
+            }
+        });
     }
 
     @Transactional(readOnly = true)

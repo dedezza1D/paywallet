@@ -96,8 +96,46 @@ services:
       CARD_WEBHOOK_SECRET: dev-only-card-webhook-secret
       # Development only: encrypts gift card codes at rest.
       VOUCHER_KEY: mVA0yS2utY5uFJAj5mDvHGqvZCT8bhlSXbz079HZL9o=
+      OTLP_TRACING_EXPORT_ENABLED: "true"
+      OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
     ports:
       - "8080:8080"
+      # Management port (health, metrics). Published for local development only; keep it private elsewhere.
+      - "8081:8081"
+
+  tempo:
+    image: grafana/tempo:2.8.0
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./observability/tempo/tempo.yml:/etc/tempo.yml:ro
+    ports:
+      - "3200:3200"
+
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    depends_on:
+      - prometheus
+      - tempo
+    environment:
+      # Development only: dashboards open without login.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
 
 volumes:
   pgdata:

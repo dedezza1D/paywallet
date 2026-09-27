@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -17,6 +18,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import br.com.paywallet.messaging.EventHeaders;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 
 /**
  * Publishes pending outbox events to Kafka in creation order. Delivery is at-least-once: if the broker
@@ -32,18 +37,26 @@ public class OutboxRelay {
     private final TransactionTemplate tx;
     private final KafkaTemplate<String, String> kafka;
     private final OutboxProperties props;
+    private final Tracer tracer;
+    private final Propagator propagator;
+    private final MeterRegistry meters;
     private final Clock clock;
 
     public OutboxRelay(JdbcTemplate jdbc, TransactionTemplate tx, KafkaTemplate<String, String> kafka,
-                       OutboxProperties props, Clock clock) {
+                       OutboxProperties props, Tracer tracer, Propagator propagator, MeterRegistry meters,
+                       Clock clock) {
         this.jdbc = jdbc;
         this.tx = tx;
         this.kafka = kafka;
         this.props = props;
+        this.tracer = tracer;
+        this.propagator = propagator;
+        this.meters = meters;
         this.clock = clock;
     }
 
-    private record PendingEvent(UUID id, String topic, String key, String eventType, String payload) {
+    private record PendingEvent(UUID id, String topic, String key, String eventType, String payload,
+                                String traceParent) {
     }
 
     @Scheduled(fixedDelayString = "${app.outbox.poll-interval}")
@@ -57,7 +70,7 @@ public class OutboxRelay {
     /** @return events published in this batch; stops at the first failure to preserve ordering */
     private int relayBatch() {
         List<PendingEvent> batch = jdbc.query("""
-                SELECT id, topic, message_key, event_type, payload::text
+                SELECT id, topic, message_key, event_type, payload::text, trace_parent
                   FROM outbox_events
                  WHERE published_at IS NULL
                  ORDER BY created_at
@@ -65,7 +78,7 @@ public class OutboxRelay {
                    FOR UPDATE SKIP LOCKED
                 """,
                 (rs, i) -> new PendingEvent(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
-                        rs.getString(4), rs.getString(5)),
+                        rs.getString(4), rs.getString(5), rs.getString(6)),
                 props.batchSize());
 
         int published = 0;
@@ -77,20 +90,36 @@ public class OutboxRelay {
                 jdbc.update("UPDATE outbox_events SET attempts = attempts + 1, last_error = ? WHERE id = ?",
                         error.length() > 1000 ? error.substring(0, 1000) : error, event.id());
                 log.warn("Outbox event {} not published, will retry: {}", event.id(), error);
+                meters.counter("paywallet.outbox.failures", "topic", event.topic()).increment();
                 break;
             }
             jdbc.update("UPDATE outbox_events SET published_at = ?, attempts = attempts + 1 WHERE id = ?",
                     Timestamp.from(clock.instant()), event.id());
+            meters.counter("paywallet.outbox.published", "topic", event.topic()).increment();
             published++;
         }
         return published;
     }
 
+    /**
+     * Continues the trace of the request that wrote the event, so the Kafka send and the consumers show up under it
+     * instead of under the relay's own polling.
+     */
     private void send(PendingEvent event) throws Exception {
-        var record = new ProducerRecord<>(event.topic(), event.key(), event.payload());
-        record.headers().add(EventHeaders.EVENT_ID, event.id().toString().getBytes(StandardCharsets.UTF_8));
-        record.headers().add(EventHeaders.EVENT_TYPE, event.eventType().getBytes(StandardCharsets.UTF_8));
-        kafka.send(record).get(props.sendTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        Map<String, String> carrier =
+                event.traceParent() == null ? Map.of() : Map.of("traceparent", event.traceParent());
+        Span span = propagator.extract(carrier, Map::get).name("outbox publish " + event.topic()).start();
+        try (var scope = tracer.withSpan(span)) {
+            var record = new ProducerRecord<>(event.topic(), event.key(), event.payload());
+            record.headers().add(EventHeaders.EVENT_ID, event.id().toString().getBytes(StandardCharsets.UTF_8));
+            record.headers().add(EventHeaders.EVENT_TYPE, event.eventType().getBytes(StandardCharsets.UTF_8));
+            kafka.send(record).get(props.sendTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            span.error(e);
+            throw e;
+        } finally {
+            span.end();
+        }
     }
 
     @Scheduled(cron = "0 0 * * * *")

@@ -10,11 +10,12 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import br.com.paywallet.user.Documents;
 import br.com.paywallet.exception.BusinessException;
 import br.com.paywallet.exception.NotFoundException;
 import br.com.paywallet.exception.TooManyRequestsException;
+import br.com.paywallet.observability.PartnerCalls;
 import br.com.paywallet.pix.PixGateway.ExternalAccount;
+import br.com.paywallet.user.Documents;
 import br.com.paywallet.user.User;
 import br.com.paywallet.user.UserService;
 import br.com.paywallet.user.UserType;
@@ -26,15 +27,17 @@ public class PixKeyService {
     private final PixKeyRepository keys;
     private final UserService users;
     private final PixGateway gateway;
+    private final PartnerCalls partners;
     private final PixProperties props;
     private final StringRedisTemplate redis;
     private final Clock clock;
 
-    public PixKeyService(PixKeyRepository keys, UserService users, PixGateway gateway, PixProperties props,
-                         StringRedisTemplate redis, Clock clock) {
+    public PixKeyService(PixKeyRepository keys, UserService users, PixGateway gateway, PartnerCalls partners,
+                         PixProperties props, StringRedisTemplate redis, Clock clock) {
         this.keys = keys;
         this.users = users;
         this.gateway = gateway;
+        this.partners = partners;
         this.props = props;
         this.redis = redis;
         this.clock = clock;
@@ -113,7 +116,8 @@ public class PixKeyService {
         String key = type.normalize(rawKey);
         return keys.findByValue(key)
                 .map(k -> new Destination(type, key, k.getUserId(), null))
-                .or(() -> gateway.lookup(key).map(account -> new Destination(type, key, null, account)))
+                .or(() -> partners.call("pix-psp", "dict-lookup", () -> gateway.lookup(key))
+                        .map(account -> new Destination(type, key, null, account)))
                 .orElseThrow(() -> new NotFoundException("Pix key not found"));
     }
 

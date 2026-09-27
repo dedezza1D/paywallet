@@ -14,11 +14,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import br.com.paywallet.hotdata.BalanceCache;
 import br.com.paywallet.ledger.AccountType;
-import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerService.Leg;
 import br.com.paywallet.ledger.LedgerService.PostCommand;
+import br.com.paywallet.ledger.LedgerService;
 import br.com.paywallet.ledger.LedgerTransactionType;
 import br.com.paywallet.merchant.ChargeService;
+import br.com.paywallet.observability.PartnerCalls;
 import br.com.paywallet.pix.PixGateway.ReturnOrder;
 
 /**
@@ -33,16 +34,18 @@ class PixReturnWorker {
 
     private final PixReturnRepository returns;
     private final PixGateway gateway;
+    private final PartnerCalls partners;
     private final LedgerService ledger;
     private final ChargeService charges;
     private final BalanceCache balanceCache;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
-    PixReturnWorker(PixReturnRepository returns, PixGateway gateway, LedgerService ledger, ChargeService charges,
-                    BalanceCache balanceCache, TransactionTemplate transactions, Clock clock) {
+    PixReturnWorker(PixReturnRepository returns, PixGateway gateway, PartnerCalls partners, LedgerService ledger,
+                    ChargeService charges, BalanceCache balanceCache, TransactionTemplate transactions, Clock clock) {
         this.returns = returns;
         this.gateway = gateway;
+        this.partners = partners;
         this.ledger = ledger;
         this.charges = charges;
         this.balanceCache = balanceCache;
@@ -59,8 +62,9 @@ class PixReturnWorker {
     private void submit(PixReturn pixReturn) {
         PixGateway.SubmitResult result;
         try {
-            result = gateway.submitReturn(new ReturnOrder(pixReturn.getReturnId(), pixReturn.getOriginalEndToEndId(),
-                    pixReturn.getAmount(), pixReturn.getReason().name()));
+            var order = new ReturnOrder(pixReturn.getReturnId(), pixReturn.getOriginalEndToEndId(),
+                    pixReturn.getAmount(), pixReturn.getReason().name());
+            result = partners.call("pix-psp", "return", () -> gateway.submitReturn(order));
         } catch (RuntimeException e) {
             log.warn("Pix return {} not submitted, will retry: {}", pixReturn.getReturnId(), e.getMessage());
             pixReturn.recordFailedAttempt(e.getMessage(), clock.instant());

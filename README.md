@@ -373,14 +373,44 @@ the alert queue in `/admin/fraud`: dismissing an alert, or confirming fraud, whi
   (a statement is not closed while credits exceed charges). Refunds and chargebacks together never exceed the
   cleared amount.
 
+## Observability
+
+- **Metrics** (Micrometer, Prometheus format on `/actuator/prometheus`): besides HTTP, JVM, connection pool and
+  Kafka client metrics, the application publishes
+  - `paywallet_ledger_transactions_total` and `paywallet_ledger_amount_brl_total` by movement type, counted after
+    commit, so every product's volume comes from the single place money moves;
+  - `paywallet_fraud_assessments_total` by channel and decision, and `paywallet_fraud_rules_total` by rule;
+  - `paywallet_queue_pending` and `paywallet_queue_oldest_age_seconds` for the outbox, pending Pix, returns, bills
+    and marketplace orders, card purchases awaiting clearing, open fraud alerts and Pix fraud claims;
+  - `paywallet_outbox_published_total`, `paywallet_outbox_failures_total` and `paywallet_kafka_dead_letters_total`;
+  - `paywallet_partner_requests_seconds` for every call to the PSP, banking partner, credit bureau, CDI source,
+    marketplace provider and card processor, tagged by partner, operation and error.
+- **Tracing** (OpenTelemetry through Micrometer Tracing, exported over OTLP): HTTP requests, scheduled workers,
+  outgoing HTTP calls, partner calls and Kafka producers and consumers become spans. The outbox stores the
+  `traceparent` of the request that wrote each event, so the relay publishes it as part of that request's trace and
+  the consumers continue it: one trace shows a transfer from the API call to the notification. Every response
+  carries the trace id in `X-Trace-Id`, and every log line carries it too (structured ECS JSON in Docker Compose).
+- **Management port**: actuator endpoints are served on port 8081 (`MANAGEMENT_PORT`), not on the API port, because
+  metrics reveal business volumes; keep it private outside local development.
+- **Local stack** (Docker Compose): Prometheus scrapes the application and evaluates the alert rules in
+  `observability/prometheus/alerts.yml` (application down, 5xx rate, outbox backlog, payments stuck at a partner,
+  dead letters, failing partners, unusual decline rate, analysts' queues). Tempo stores traces and Grafana comes
+  provisioned with both data sources and the *PayWallet overview* dashboard, where metric exemplars link to traces.
+
 ## Running
 
 ```bash
 docker compose up --build
 ```
 
-Swagger UI: http://localhost:8080/swagger-ui.html (use **Authorize** with the access token).
-Local S3 (LocalStack): http://localhost:4566.
+| URL | What |
+|---|---|
+| http://localhost:8080/swagger-ui.html | API and Swagger UI (use **Authorize** with the access token) |
+| http://localhost:8081/actuator/health | Health and metrics (management port) |
+| http://localhost:3000 | Grafana, *PayWallet overview* dashboard (anonymous viewer) |
+| http://localhost:9090 | Prometheus, including alert rules and their state |
+| http://localhost:3200 | Tempo (traces, queried through Grafana) |
+| http://localhost:4566 | Local S3 (LocalStack) |
 
 Infrastructure only, with the application running locally (JDK 21 and Maven):
 
@@ -562,3 +592,6 @@ curl -X POST localhost:8080/transfer -H "Authorization: Bearer $TOKEN" -H "Conte
 - Pix still missing: a real PSP adapter for `PixGateway`, SMS confirmation of phone keys, dynamic QR codes
   (charges with expiry), the lower nighttime Pix limit (8 p.m. to 6 a.m.), MED for Pix exchanged with other
   institutions (through DICT infraction reports), and key portability and claims between institutions.
+- Observability still missing: log aggregation (e.g. Loki) next to metrics and traces, Alertmanager routing alerts
+  to on-call, SLO burn-rate alerts, and tail-based sampling so production keeps every failed trace at a low
+  sampling rate.
