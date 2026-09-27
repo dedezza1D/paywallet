@@ -98,7 +98,7 @@ services:
       # Development only: encrypts gift card codes at rest.
       VOUCHER_KEY: mVA0yS2utY5uFJAj5mDvHGqvZCT8bhlSXbz079HZL9o=
       PAYMENT_LINK_BASE_URL: https://localhost/pay/
-      FORWARD_HEADERS_STRATEGY: framework
+      FORWARD_HEADERS_STRATEGY: native
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       # Development only: HMAC key for the one-time codes sent by email.

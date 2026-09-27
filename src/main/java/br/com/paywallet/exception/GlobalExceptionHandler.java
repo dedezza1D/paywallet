@@ -6,7 +6,9 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.MethodParameter;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -86,10 +88,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
     }
 
-    /** Without the idempotency lock and the daily limit it is not safe to move money, so fail closed. */
-    @ExceptionHandler(RedisConnectionFailureException.class)
-    ProblemDetail handleRedisDown(RedisConnectionFailureException ex) {
-        log.error("Redis unavailable", ex);
+    /**
+     * Without the idempotency lock, the daily limit and the attempt counters it is not safe to move money or check
+     * credentials, so fail closed. A stopped Redis shows up as a command timeout, not only as a refused connection.
+     */
+    @ExceptionHandler({RedisConnectionFailureException.class, QueryTimeoutException.class})
+    ProblemDetail handleStoreDown(DataAccessException ex) {
+        log.error("Data store unavailable", ex);
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
                 "Service temporarily unavailable, please retry");
     }

@@ -5,15 +5,24 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.ResultActions;
 
 import br.com.paywallet.IntegrationTest;
+import br.com.paywallet.exception.InvalidTransactionPinException;
+import br.com.paywallet.exception.TooManyRequestsException;
 import br.com.paywallet.user.UserDtos.UserResponse;
 import br.com.paywallet.user.UserType;
 
 class TransactionPinIntegrationTest extends IntegrationTest {
+
+    @Autowired TransactionPinService pins;
 
     @Test
     void outflowsNeedTheRightPin() throws Exception {
@@ -38,6 +47,41 @@ class TransactionPinIntegrationTest extends IntegrationTest {
         }
         transfer(payer, payee, TEST_PIN).andExpect(status().isTooManyRequests());
         assertThat(balanceOf(payer)).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void parallelWrongPinsCannotExceedTheAttemptLimit() throws Exception {
+        var payer = newUserWithBalance("Parallel Guesser", "100.00");
+        var guess = new AtomicInteger();
+
+        List<String> outcomes = AttemptGuardIntegrationTest.inParallel(20, () -> {
+            try {
+                pins.verify(payer.id(), "9%05d".formatted(guess.getAndIncrement()));
+                return "accepted";
+            } catch (InvalidTransactionPinException e) {
+                return "wrong";
+            } catch (TooManyRequestsException e) {
+                return "locked";
+            }
+        });
+
+        assertThat(outcomes).filteredOn("wrong"::equals).hasSize(5);
+        assertThat(outcomes).filteredOn("locked"::equals).hasSize(15);
+        transfer(payer, newUser(UserType.COMMON, "Parallel Payee"), TEST_PIN).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
+    void bcryptPinsFromBeforeTheKeyedHashStillWorkAndAreUpgraded() throws Exception {
+        var payer = newUserWithBalance("Legacy Pin Payer", "100.00");
+        jdbc.update("UPDATE users SET transaction_pin_hash = ? WHERE id = ?",
+                new BCryptPasswordEncoder().encode(TEST_PIN), payer.id());
+
+        transfer(payer, newUser(UserType.COMMON, "Legacy Pin Payee"), TEST_PIN).andExpect(status().isCreated());
+
+        String stored = jdbc.queryForObject("SELECT transaction_pin_hash FROM users WHERE id = ?", String.class,
+                payer.id());
+        assertThat(stored).startsWith("hmac:v1:").doesNotContain(TEST_PIN);
+        transfer(payer, newUser(UserType.COMMON, "Legacy Pin Payee 2"), TEST_PIN).andExpect(status().isCreated());
     }
 
     @Test

@@ -56,8 +56,10 @@ spring:
 server:
   # Finishes in-flight requests before stopping (rolling updates, scale-in).
   shutdown: graceful
-  # "framework" when behind a TLS-terminating proxy, so redirects and links use https. Only trust the headers when
-  # every request comes through the proxy: a client reaching the app directly could forge them.
+  # "native" behind a TLS-terminating proxy: Tomcat takes the client address and scheme from X-Forwarded-For and
+  # X-Forwarded-Proto, and only when they come from a private-network proxy. Avoid "framework": it also honors the
+  # RFC 7239 Forwarded header, which proxies pass through untouched, so clients could pick their own address and
+  # dodge the per-IP limits.
   forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
 
 app:

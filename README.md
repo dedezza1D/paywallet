@@ -54,8 +54,9 @@ each kind of data lives in the store that best fits it.
 - **Transaction PIN**: every endpoint that moves money out (transfers, Pix and Pix returns, charge payments and
   refunds, bills, marketplace, card statements, loan installments and prepayments) requires the user's 6-digit PIN
   in `X-Transaction-Pin`, so a stolen session or password alone cannot move money. It is set or changed with the
-  account password (`POST /auth/pin`), stored with BCrypt, and refuses repeated digits and sequences. Without it
-  the answer is 428; five wrong PINs lock outflows for 30 minutes (429).
+  account password (`POST /auth/pin`), stored as an HMAC under the KMS-protected index key, and refuses repeated
+  digits and sequences. Without it the answer is 428; five wrong PINs lock outflows for 30 minutes (429), even when
+  the guesses arrive in parallel.
 - **Two-factor authentication** (TOTP, RFC 6238, any authenticator app): `POST /auth/mfa/setup` returns the secret
   and an `otpauth://` URI for the QR code, `POST /auth/mfa/enable` confirms it with a first code and returns 8
   single-use recovery codes (stored hashed). From then on `POST /auth/login` answers `mfaRequired` with a 5-minute
@@ -427,10 +428,12 @@ the alert queue in `/admin/fraud`: dismissing an alert, or confirming fraud, whi
 
 - **TLS**: in Docker Compose the API is only reachable through **Caddy**, which terminates HTTPS on
   https://localhost with a certificate from its local CA, redirects HTTP to HTTPS and adds HSTS and hardening
-  headers. The application trusts `X-Forwarded-*` only when `FORWARD_HEADERS_STRATEGY=framework`, which must be
-  set only when every request comes through the proxy. In production the load balancer or ingress plays Caddy's
-  role; connections to PostgreSQL (`sslmode=verify-full` in `DB_URL`), Redis (`spring.data.redis.ssl.enabled`),
-  Kafka (`security.protocol=SSL`) and AWS use TLS through standard configuration.
+  headers. With `FORWARD_HEADERS_STRATEGY=native` the application takes the client address and scheme from
+  `X-Forwarded-For` and `X-Forwarded-Proto`, only when the request comes from a private-network proxy; the RFC 7239
+  `Forwarded` header, which Caddy passes through untouched, is ignored so clients cannot pick their own address.
+  In production the load balancer or ingress plays Caddy's role; connections to PostgreSQL (`sslmode=verify-full`
+  in `DB_URL`), Redis (`spring.data.redis.ssl.enabled`), Kafka (`security.protocol=SSL`) and AWS use TLS through
+  standard configuration.
 - **Personal data at rest**: CPF/CNPJ, Pix key values and phone numbers are encrypted per field with AES-256-GCM
   (`enc:v1:<key id>:...`, the key id also authenticated). Lookups and unique constraints use a **blind index**, the
   HMAC-SHA256 of the value under a separate key, so resolving a Pix key or checking a duplicate CPF never decrypts

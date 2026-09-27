@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -74,6 +75,24 @@ class LedgerIntegrationTest extends IntegrationTest {
                 List.of(Leg.debit(a, 101), Leg.credit(b, 101)))))
                 .isInstanceOf(InsufficientFundsException.class);
         assertThat(ledger.walletOf(poor.id()).getBalance()).isEqualTo(100);
+    }
+
+    /** Bill payments and incoming Pix load the wallet before posting; another movement may commit in between. */
+    @Test
+    void postsWhenTheCallerLoadedTheAccountBeforeAnotherMovementCommitted() {
+        var payer = newUserWithBalance("Stale", "10.00");
+        var from = ledger.walletOf(payer.id()).getId();
+        var to = ledger.walletOf(newUser(UserType.COMMON, "Receiver").id()).getId();
+
+        tx.executeWithoutResult(s -> {
+            assertThat(ledger.walletOf(payer.id()).getBalance()).isEqualTo(1000);
+            CompletableFuture.runAsync(() -> ledger.post(new PostCommand(LedgerTransactionType.P2P_TRANSFER, newKey(),
+                    null, List.of(Leg.debit(from, 300), Leg.credit(to, 300))))).join();
+            ledger.post(new PostCommand(LedgerTransactionType.P2P_TRANSFER, newKey(), null,
+                    List.of(Leg.debit(from, 500), Leg.credit(to, 500))));
+        });
+
+        assertThat(ledger.walletOf(payer.id()).getBalance()).isEqualTo(200);
     }
 
     @Test
