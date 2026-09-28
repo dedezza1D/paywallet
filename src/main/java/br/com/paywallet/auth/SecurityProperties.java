@@ -1,6 +1,7 @@
 package br.com.paywallet.auth;
 
 import java.time.Duration;
+import java.util.List;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -25,7 +26,8 @@ public record SecurityProperties(
         Codes codes,
         Pin pin,
         Mfa mfa,
-        int ipRateLimit) {
+        int ipRateLimit,
+        List<String> corsAllowedOrigins) {
 
     /**
      * @param privateKey RSA PKCS#8 PEM. Empty = ephemeral key generated at startup

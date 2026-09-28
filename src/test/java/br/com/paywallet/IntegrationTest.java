@@ -96,6 +96,9 @@ public abstract class IntegrationTest {
         // Same start and end hour: the nighttime rule would make results depend on when tests run.
         registry.add("app.fraud.night-start-hour", () -> "0");
         registry.add("app.fraud.night-end-hour", () -> "0");
+        // Set for the whole suite: a test with its own properties starts a second context, whose Kafka consumers
+        // join the same groups and take messages the first context is waiting for.
+        registry.add("app.security.cors-allowed-origins", () -> "http://localhost:8082");
     }
 
     protected static final String WEBHOOK_SECRET = "test-webhook-secret";
@@ -157,7 +160,7 @@ public abstract class IntegrationTest {
                 ? "%011d".formatted(rnd.nextLong(1_000_000_000L, 99_999_999_999L))
                 : "%014d".formatted(rnd.nextLong(10_000_000_000_000L, 99_999_999_999_999L));
         var user = userService.create(new CreateUserRequest(name, document,
-                name.toLowerCase().replace(' ', '.') + "." + UUID.randomUUID() + "@mail.com", PASSWORD, type));
+                name.toLowerCase().replace(' ', '.') + "." + UUID.randomUUID() + "@mail.com", PASSWORD, type, true));
         jdbc.update("UPDATE users SET email_verified_at = now(), transaction_pin_hash = ? WHERE id = ?", TEST_PIN_HASH,
                 user.id());
         return userService.findById(user.id());

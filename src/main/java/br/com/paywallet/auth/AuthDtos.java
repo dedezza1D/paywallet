@@ -63,4 +63,12 @@ public final class AuthDtos {
     public record ChangePasswordRequest(@NotBlank String currentPassword,
                                         @NotBlank @Size(max = 72) String newPassword) {
     }
+
+    /** {@code code}: from the authenticator app or a recovery code, required when 2FA is on. */
+    public record CloseAccountRequest(@NotBlank String password, @Size(max = 20) String code) {
+    }
+
+    /** {@code blockers}: what must be settled first; empty when the account can be closed. */
+    public record ClosureCheck(boolean closable, List<String> blockers) {
+    }
 }

@@ -10,6 +10,7 @@ import br.com.paywallet.auth.AuthDtos.LoginResult;
 import br.com.paywallet.auth.AuthDtos.MfaChallengeResponse;
 import br.com.paywallet.auth.AuthDtos.TokenResponse;
 import br.com.paywallet.auth.RefreshTokenService.IssuedRefreshToken;
+import br.com.paywallet.exception.AccountClosedException;
 import br.com.paywallet.exception.EmailNotVerifiedException;
 import br.com.paywallet.exception.InvalidCredentialsException;
 import br.com.paywallet.exception.InvalidRefreshTokenException;
@@ -64,6 +65,9 @@ public class AuthService {
         }
         if (user.isEmpty() || !matches) {
             throw new InvalidCredentialsException();
+        }
+        if (user.get().isClosed()) {
+            throw new AccountClosedException();
         }
         if (!user.get().isEmailVerified()) {
             throw new EmailNotVerifiedException();

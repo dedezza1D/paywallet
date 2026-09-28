@@ -215,12 +215,27 @@ class AuthIntegrationTest extends IntegrationTest {
     }
 
     @Test
+    void signupRequiresAcceptingTheTerms() throws Exception {
+        for (String accepted : new String[] {"false", "null"}) {
+            mvc.perform(post("/users").contentType(MediaType.APPLICATION_JSON).content("""
+                            {"fullName": "Undecided", "document": "%011d", "email": "undecided-%s@mail.com",
+                             "password": "password1234", "type": "COMMON", "acceptedTerms": %s}
+                            """.formatted(System.nanoTime() % 100_000_000_000L, newKey(), accepted)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors.acceptedTerms").exists());
+        }
+    }
+
+    @Test
     void signupIsPublicAndJwksExposesOnlyThePublicKey() throws Exception {
+        String email = "newcomer-%s@mail.com".formatted(newKey()).toLowerCase();
         mvc.perform(post("/users").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"fullName": "Newcomer", "document": "%011d", "email": "newcomer-%s@mail.com",
-                         "password": "password1234", "type": "COMMON"}
-                        """.formatted(System.nanoTime() % 100_000_000_000L, newKey())))
+                        {"fullName": "Newcomer", "document": "%011d", "email": "%s",
+                         "password": "password1234", "type": "COMMON", "acceptedTerms": true}
+                        """.formatted(System.nanoTime() % 100_000_000_000L, email)))
                 .andExpect(status().isCreated());
+        assertThat(jdbc.queryForMap("SELECT terms_version, terms_accepted_at FROM users WHERE email = ?", email))
+                .doesNotContainValue(null);
 
         mvc.perform(get("/.well-known/jwks.json"))
                 .andExpect(status().isOk())

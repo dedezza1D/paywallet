@@ -68,6 +68,15 @@ public class User {
     @Column(name = "totp_enabled_at")
     private Instant totpEnabledAt;
 
+    @Column(name = "terms_version", length = 20)
+    private String termsVersion;
+
+    @Column(name = "terms_accepted_at")
+    private Instant termsAcceptedAt;
+
+    @Column(name = "closed_at")
+    private Instant closedAt;
+
     protected User() {
     }
 
@@ -112,6 +121,19 @@ public class User {
         this.totpEnabledAt = null;
     }
 
+    public void acceptTerms(String version, Instant now) {
+        this.termsVersion = version;
+        this.termsAcceptedAt = now;
+    }
+
+    public void close(Instant now) {
+        this.closedAt = now;
+    }
+
+    public boolean isClosed() {
+        return closedAt != null;
+    }
+
     public boolean isTotpEnabled() {
         return totpEnabledAt != null;
     }
@@ -132,4 +154,6 @@ public class User {
     public Instant getPasswordChangedAt() { return passwordChangedAt; }
     public String getTransactionPinHash() { return transactionPinHash; }
     public String getTotpSecret() { return totpSecret; }
+    public String getTermsVersion() { return termsVersion; }
+    public Instant getTermsAcceptedAt() { return termsAcceptedAt; }
 }

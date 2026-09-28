@@ -2,6 +2,7 @@ package br.com.paywallet.user;
 
 import java.time.Instant;
 
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -20,7 +21,8 @@ public final class UserDtos {
             String document,
             @NotBlank @Email String email,
             @NotBlank @Size(min = 12, max = 72, message = "must have between 12 and 72 characters") String password,
-            @NotNull UserType type) {
+            @NotNull UserType type,
+            @NotNull @AssertTrue(message = "must accept the terms of use and the privacy policy") Boolean acceptedTerms) {
     }
 
     public record UserResponse(Long id, String fullName, String document, String email, boolean emailVerified,

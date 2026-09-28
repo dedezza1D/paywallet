@@ -116,6 +116,11 @@ public class MfaService {
         jdbc.update("DELETE FROM mfa_recovery_codes WHERE user_id = ?", userId);
     }
 
+    /** Checks a code from the authenticator app or a recovery code, consuming it. */
+    boolean verifySecondFactor(User user, String code) {
+        return acceptTotp(user, code) || acceptRecoveryCode(user, code);
+    }
+
     String startChallenge(Long userId) {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
