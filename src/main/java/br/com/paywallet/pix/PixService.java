@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -236,8 +238,23 @@ public class PixService {
     public PixPaymentResponse get(Long userId, String endToEndId) {
         return payments.findByEndToEndId(endToEndId)
                 .filter(p -> p.involves(userId))
-                .map(PixPaymentResponse::from)
+                .map(p -> viewedBy(userId, p))
                 .orElseThrow(() -> new NotFoundException("Pix payment not found"));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PixPaymentResponse> list(Long userId, Pageable pageable) {
+        return payments.findByPayerUserIdOrPayeeUserId(userId, userId, pageable).map(p -> viewedBy(userId, p));
+    }
+
+    /** An internal Pix is stored once, from the payer's side. */
+    private PixPaymentResponse viewedBy(Long userId, PixPayment p) {
+        if (p.getScope() == PixPayment.Scope.INTERNAL && userId.equals(p.getPayeeUserId())
+                && !userId.equals(p.getPayerUserId())) {
+            User payer = users.get(p.getPayerUserId());
+            return PixPaymentResponse.received(p, payer.getFullName(), Documents.mask(payer.getDocument()));
+        }
+        return PixPaymentResponse.from(p);
     }
 
     private Order toOrder(SendPixRequest req) {

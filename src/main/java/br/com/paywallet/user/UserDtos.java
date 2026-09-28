@@ -24,11 +24,12 @@ public final class UserDtos {
     }
 
     public record UserResponse(Long id, String fullName, String document, String email, boolean emailVerified,
-                               UserType type, Instant createdAt) {
+                               UserType type, boolean transactionPinSet, boolean twoFactorEnabled,
+                               Instant createdAt) {
 
         public static UserResponse from(User u) {
             return new UserResponse(u.getId(), u.getFullName(), u.getDocument(), u.getEmail(), u.isEmailVerified(),
-                    u.getType(), u.getCreatedAt());
+                    u.getType(), u.getTransactionPinHash() != null, u.isTotpEnabled(), u.getCreatedAt());
         }
     }
 }

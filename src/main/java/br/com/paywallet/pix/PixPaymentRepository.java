@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -16,6 +17,8 @@ import jakarta.persistence.QueryHint;
 interface PixPaymentRepository extends JpaRepository<PixPayment, UUID> {
 
     Optional<PixPayment> findByEndToEndId(String endToEndId);
+
+    Page<PixPayment> findByPayerUserIdOrPayeeUserId(Long payerUserId, Long payeeUserId, Pageable pageable);
 
     Optional<PixPayment> findByIdempotencyKey(String idempotencyKey);
 

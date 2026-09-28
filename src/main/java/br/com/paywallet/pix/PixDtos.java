@@ -57,6 +57,13 @@ public final class PixDtos {
                     p.getCounterpartyIspb(), p.getDescription(), p.getFailureReason(), p.getCreatedAt(),
                     p.getSettledAt());
         }
+
+        /** An internal Pix as its receiver sees it: incoming, with the payer as counterparty. */
+        static PixPaymentResponse received(PixPayment p, String payerName, String payerDocument) {
+            return new PixPaymentResponse(p.getEndToEndId(), PixPayment.Direction.IN, p.getScope(), p.getStatus(),
+                    Money.fromCents(p.getAmount()), payerName, payerDocument, p.getCounterpartyIspb(),
+                    p.getDescription(), p.getFailureReason(), p.getCreatedAt(), p.getSettledAt());
+        }
     }
 
     public record SendResult(PixPaymentResponse payment, boolean replayed) {
