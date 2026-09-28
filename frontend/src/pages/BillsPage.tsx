@@ -1,12 +1,12 @@
 import { FileText } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
-import { errorMessage, newIdempotencyKey } from '../api/client'
-import { lookupBill, useBillPayments, usePayBill } from '../api/queries'
-import type { BillQuote } from '../api/types'
+import {
+  date, dateTime, errorMessage, lookupBill, money, newIdempotencyKey, onlyDigits, parseAmount, useBillPayments,
+  usePayBill,
+} from '@paywallet/core'
+import type { BillQuote } from '@paywallet/core'
 import { actionError, usePin, useToast } from '../components/feedback'
 import { Alert, Button, Card, EmptyState, Input, PageHeader, Row, SectionTitle, Spinner, StatusBadge } from '../components/ui'
-import { date, dateTime, money, parseAmount } from '../lib/format'
-import { onlyDigits } from '../lib/validation'
 
 export default function BillsPage() {
   const [code, setCode] = useState('')

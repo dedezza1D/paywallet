@@ -1,14 +1,11 @@
 import { CreditCard, Plus } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 import { Link } from 'react-router'
-import { errorMessage } from '../api/client'
-import { useCards, useIssueCard } from '../api/queries'
-import type { Card as CardModel, CardType } from '../api/types'
-import { useUser } from '../auth/AuthContext'
+import { errorMessage, money, useCards, useIssueCard, useUser } from '@paywallet/core'
+import type { Card as CardModel, CardType } from '@paywallet/core'
 import { useToast } from '../components/feedback'
 import { Alert, Button, Card, EmptyState, Modal, PageHeader, Select, Spinner, StatusBadge } from '../components/ui'
 import { cx } from '../lib/cx'
-import { money } from '../lib/format'
 
 export function CardFace({ card, holder }: { card: CardModel; holder: string }) {
   return (

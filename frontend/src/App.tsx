@@ -1,5 +1,5 @@
 import { createBrowserRouter, Navigate, Outlet, RouterProvider, useLocation } from 'react-router'
-import { useAuth } from './auth/AuthContext'
+import { useAuth } from '@paywallet/core'
 import { FeedbackProvider } from './components/feedback'
 import { Spinner } from './components/ui'
 import AppLayout from './layout/AppLayout'
@@ -11,6 +11,7 @@ import CardsPage from './pages/CardsPage'
 import EarningsPage from './pages/EarningsPage'
 import HomePage from './pages/HomePage'
 import LoanDetailPage from './pages/LoanDetailPage'
+import LegalPage from './pages/LegalPage'
 import LoansPage from './pages/LoansPage'
 import MerchantNotice from './pages/MerchantNotice'
 import NotFoundPage from './pages/NotFoundPage'
@@ -51,6 +52,7 @@ const router = createBrowserRouter([
         ],
       },
       { path: '/pay/:token', element: <PayLinkPage /> },
+      { path: '/legal/:document', element: <LegalPage /> },
       {
         element: <RequireAuth />,
         children: [

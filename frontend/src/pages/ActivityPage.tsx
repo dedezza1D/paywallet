@@ -1,11 +1,9 @@
 import { History, Lock, Users } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { useFeed, usePublicFeed, useStatement } from '../api/queries'
-import { useUser } from '../auth/AuthContext'
+import { dateTime, money, useFeed, usePublicFeed, useStatement, useUser } from '@paywallet/core'
 import { ActivityList } from '../components/wallet'
 import { Badge, Button, Card, EmptyState, PageHeader, Spinner, Tabs } from '../components/ui'
-import { dateTime, money } from '../lib/format'
 
 type Tab = 'statement' | 'friends' | 'community'
 

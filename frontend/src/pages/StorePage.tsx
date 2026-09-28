@@ -1,15 +1,14 @@
 import { Gift, Smartphone } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
-import { newIdempotencyKey } from '../api/client'
-import { useCashback, useOrder, useOrders, useProducts, usePurchase } from '../api/queries'
-import type { Product } from '../api/types'
+import {
+  dateTime, money, newIdempotencyKey, onlyDigits, useCashback, useOrder, useOrders, useProducts, usePurchase,
+} from '@paywallet/core'
+import type { Product } from '@paywallet/core'
 import { actionError, usePin } from '../components/feedback'
 import {
   Alert, Badge, Button, Card, CopyButton, EmptyState, Input, Modal, PageHeader, SectionTitle, Spinner, StatusBadge,
 } from '../components/ui'
 import { cx } from '../lib/cx'
-import { dateTime, money } from '../lib/format'
-import { onlyDigits } from '../lib/validation'
 
 export default function StorePage() {
   const products = useProducts()

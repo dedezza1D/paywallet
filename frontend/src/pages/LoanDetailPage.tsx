@@ -1,12 +1,12 @@
 import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { errorMessage, newIdempotencyKey } from '../api/client'
-import { prepaymentQuote, useLoan, usePayInstallment, usePrepay } from '../api/queries'
-import type { PrepaymentQuote } from '../api/types'
+import {
+  date, errorMessage, money, newIdempotencyKey, percent, prepaymentQuote, useLoan, usePayInstallment, usePrepay,
+} from '@paywallet/core'
+import type { PrepaymentQuote } from '@paywallet/core'
 import { actionError, usePin, useToast } from '../components/feedback'
 import { Alert, Button, Card, Modal, PageHeader, Row, Select, Spinner, StatusBadge } from '../components/ui'
-import { date, money, percent } from '../lib/format'
 
 export default function LoanDetailPage() {
   const { id = '' } = useParams()

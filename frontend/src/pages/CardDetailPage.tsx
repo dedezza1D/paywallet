@@ -1,16 +1,14 @@
 import { ArrowLeft, Lock, ShieldAlert, Unlock, XCircle } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { errorMessage, newIdempotencyKey } from '../api/client'
 import {
-  useCard, useCardAction, useCardStatements, useCardTransactions, useDisputes, useFinanceStatement, useInstallmentOptions,
-  useOpenDispute, usePayStatement,
-} from '../api/queries'
-import type { CardStatement, CardTransaction, DisputeReason } from '../api/types'
-import { useUser } from '../auth/AuthContext'
+  date, dateTime, errorMessage, money, newIdempotencyKey, parseAmount, percent, useCard, useCardAction,
+  useCardStatements, useCardTransactions, useDisputes, useFinanceStatement, useInstallmentOptions, useOpenDispute,
+  usePayStatement, useUser,
+} from '@paywallet/core'
+import type { CardStatement, CardTransaction, DisputeReason } from '@paywallet/core'
 import { actionError, usePin, useToast } from '../components/feedback'
 import { Alert, Button, Card, EmptyState, Input, Modal, Row, Select, Spinner, StatusBadge, Tabs } from '../components/ui'
-import { date, dateTime, money, parseAmount, percent } from '../lib/format'
 import { CardFace } from './CardsPage'
 
 type Tab = 'purchases' | 'bills' | 'disputes'

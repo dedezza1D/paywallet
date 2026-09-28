@@ -34,6 +34,9 @@ export type User = {
   createdAt: string
 }
 
+/** blockers: what must be settled before the account can be closed. */
+export type ClosureCheck = { closable: boolean; blockers: string[] }
+
 export type Balance = { userId: number; accountId: string; balance: number }
 export type Limits = { dailyLimit: number; usedToday: number; remainingToday: number }
 

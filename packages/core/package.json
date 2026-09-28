@@ -1,0 +1,21 @@
+{
+  "name": "@paywallet/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "API contracts, client, session, queries and formatting shared by the web and mobile apps",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5",
+    "react": "^19"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vitest": "^5.0.2"
+  }
+}

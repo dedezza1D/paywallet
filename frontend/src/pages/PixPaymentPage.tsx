@@ -1,12 +1,13 @@
 import { ArrowLeft, CheckCircle2, Clock, ShieldAlert, Undo2, XCircle } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { errorMessage, newIdempotencyKey } from '../api/client'
-import { useFileFraudClaim, useFraudClaims, usePixPayment, usePixReturns, useReturnPix } from '../api/queries'
-import type { PixPayment, PixReturnReason } from '../api/types'
+import {
+  dateTime, errorMessage, money, newIdempotencyKey, parseAmount, useFileFraudClaim, useFraudClaims, usePixPayment,
+  usePixReturns, useReturnPix,
+} from '@paywallet/core'
+import type { PixPayment, PixReturnReason } from '@paywallet/core'
 import { actionError, usePin, useToast } from '../components/feedback'
 import { Alert, Button, Card, Input, Modal, Row, Select, Spinner, StatusBadge } from '../components/ui'
-import { dateTime, money, parseAmount } from '../lib/format'
 
 const reasons: Record<PixReturnReason, string> = {
   MD06: 'Customer asked for a refund',

@@ -1,7 +1,6 @@
 import { TrendingUp } from 'lucide-react'
-import { useYield } from '../api/queries'
+import { date, money, percent, useYield } from '@paywallet/core'
 import { Alert, Card, EmptyState, PageHeader, SectionTitle, Spinner } from '../components/ui'
-import { date, money, percent } from '../lib/format'
 
 export default function EarningsPage() {
   const earnings = useYield()

@@ -1,7 +1,7 @@
 import { CheckCircle2, LockKeyhole } from 'lucide-react'
 import { createContext, type ReactNode, use, useCallback, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { ApiError, errorMessage } from '../api/client'
+import { ApiError, errorMessage } from '@paywallet/core'
 import { Alert, Button, Modal } from './ui'
 
 /** Thrown when the user closes the PIN dialog; callers ignore it instead of showing an error. */

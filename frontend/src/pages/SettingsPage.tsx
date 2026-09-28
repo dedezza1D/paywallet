@@ -1,19 +1,18 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { Download, FileUp, KeyRound, LockKeyhole, ShieldCheck, Smartphone } from 'lucide-react'
+import { Download, FileUp, KeyRound, LockKeyhole, ShieldCheck, Smartphone, UserX } from 'lucide-react'
 import { type FormEvent, type ReactNode, useState } from 'react'
-import { NavLink, useParams } from 'react-router'
-import { errorMessage, request } from '../api/client'
-import { kycDownloadUrl, useKycDocuments, useUploadKyc } from '../api/queries'
-import type { KycType } from '../api/types'
-import { useUser } from '../auth/AuthContext'
+import { NavLink, useNavigate, useParams } from 'react-router'
+import {
+  closeAccount, date, dateTime, errorMessage, kycDownloadUrl, maskDocument, onlyDigits, passwordProblem, request,
+  useClosureCheck, useKycDocuments, useUploadKyc, useUser,
+} from '@paywallet/core'
+import type { KycType } from '@paywallet/core'
 import { useToast } from '../components/feedback'
 import {
   Alert, Badge, Button, Card, CopyButton, EmptyState, Input, PageHeader, QrCode, Row, SectionTitle, Select, Spinner,
   StatusBadge,
 } from '../components/ui'
 import { cx } from '../lib/cx'
-import { date, dateTime, maskDocument } from '../lib/format'
-import { onlyDigits, passwordProblem } from '../lib/validation'
 
 const sections = [
   { id: 'profile', label: 'Profile' },
@@ -66,6 +65,7 @@ function Security() {
       <PinCard />
       <TwoFactorCard />
       <PasswordCard />
+      <CloseAccountCard />
     </div>
   )
 }
@@ -267,6 +267,61 @@ function PasswordCard() {
         {error && <Alert>{error}</Alert>}
         <Button type="submit" loading={busy} disabled={!current || !next || !!problem}>Change password</Button>
       </form>
+    </SecurityCard>
+  )
+}
+
+function CloseAccountCard() {
+  const user = useUser()
+  const check = useClosureCheck()
+  const navigate = useNavigate()
+  const [confirming, setConfirming] = useState(false)
+  const [password, setPassword] = useState('')
+  const [code, setCode] = useState('')
+  const [error, setError] = useState<string>()
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    setBusy(true)
+    setError(undefined)
+    try {
+      await closeAccount({ password, code: code.trim() || undefined })
+      navigate('/login', { replace: true, state: { accountClosed: true } })
+    } catch (e) {
+      setError(errorMessage(e))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <SecurityCard icon={<UserX className="size-5" />} title="Close account">
+      <p className="-mt-2 mb-4 text-sm text-muted">
+        Closing is permanent: you will not be able to sign in again. Your transaction history is kept for the periods
+        the law requires.
+      </p>
+      {check.isPending ? <Spinner /> : check.data && !check.data.closable ? (
+        <Alert tone="info">
+          Before closing:
+          <ul className="mt-1 list-disc pl-5">{check.data.blockers.map((b) => <li key={b}>{b}</li>)}</ul>
+        </Alert>
+      ) : !confirming ? (
+        <Button variant="danger" onClick={() => setConfirming(true)}>Close my account</Button>
+      ) : (
+        <form onSubmit={submit} className="space-y-3">
+          <Input label="Account password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          {user.twoFactorEnabled && (
+            <Input label="Code from the app or a recovery code" value={code} onChange={(e) => setCode(e.target.value)} />
+          )}
+          {error && <Alert>{error}</Alert>}
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" onClick={() => setConfirming(false)}>Keep my account</Button>
+            <Button type="submit" variant="danger" loading={busy} disabled={!password || (user.twoFactorEnabled && !code.trim())}>
+              Close permanently
+            </Button>
+          </div>
+        </form>
+      )}
     </SecurityCard>
   )
 }

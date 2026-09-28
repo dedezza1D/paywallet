@@ -1,0 +1,10 @@
+{
+  "name": "paywallet-apps",
+  "private": true,
+  "description": "Web and mobile apps; the API is the Maven project at the root",
+  "workspaces": [
+    "packages/core",
+    "frontend",
+    "mobile"
+  ]
+}

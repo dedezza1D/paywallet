@@ -1,12 +1,12 @@
 import { ShieldCheck, Sparkles, Zap } from 'lucide-react'
 import { type FormEvent, type ReactNode, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
-import { ApiError, errorMessage, request } from '../api/client'
-import type { MfaChallenge } from '../api/types'
-import { useAuth } from '../auth/AuthContext'
+import {
+  ApiError, errorMessage, formatCpf, isEmail, isValidCpf, onlyDigits, passwordProblem, request, useAuth,
+} from '@paywallet/core'
+import type { MfaChallenge } from '@paywallet/core'
 import { Alert, Button, Input } from '../components/ui'
 import { Logo } from '../layout/AppLayout'
-import { formatCpf, isEmail, isValidCpf, onlyDigits, passwordProblem } from '../lib/validation'
 
 function AuthShell({ title, subtitle, children }: { title: string; subtitle?: ReactNode; children: ReactNode }) {
   return (
@@ -45,11 +45,13 @@ export function LoginPage() {
   const [code, setCode] = useState('')
   const [error, setError] = useState<ReactNode>()
   const [busy, setBusy] = useState(false)
-  const state = location.state as { from?: string; verified?: boolean; passwordReset?: boolean } | null
+  const state = location.state as { from?: string; verified?: boolean; passwordReset?: boolean; accountClosed?: boolean } | null
   const destination = state?.from ?? '/'
   const notice = state?.verified
     ? 'Email confirmed. Sign in to continue.'
-    : state?.passwordReset ? 'Password changed. Sign in with your new password.' : undefined
+    : state?.passwordReset
+      ? 'Password changed. Sign in with your new password.'
+      : state?.accountClosed ? 'Your account is closed. Thank you for using PayWallet.' : undefined
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -127,6 +129,7 @@ export function LoginPage() {
 export function SignupPage() {
   const navigate = useNavigate()
   const [form, setForm] = useState({ fullName: '', document: '', email: '', password: '', confirm: '' })
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [touched, setTouched] = useState(false)
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -138,6 +141,7 @@ export function SignupPage() {
     email: isEmail(form.email) ? undefined : 'Enter a valid email.',
     password: passwordProblem(form.password),
     confirm: form.confirm === form.password ? undefined : 'Passwords do not match.',
+    terms: acceptedTerms ? undefined : 'Accept the terms to continue.',
   }
   const shown = (field: keyof typeof problems) => (touched ? problems[field] : undefined)
 
@@ -157,6 +161,7 @@ export function SignupPage() {
           email: form.email.trim(),
           password: form.password,
           type: 'COMMON',
+          acceptedTerms,
         },
       })
       navigate(`/verify-email?email=${encodeURIComponent(form.email.trim())}&new=1`)
@@ -190,6 +195,22 @@ export function SignupPage() {
           hint="At least 12 characters. A passphrase works well."
         />
         <Input label="Confirm password" type="password" autoComplete="new-password" value={form.confirm} onChange={set('confirm')} error={shown('confirm')} />
+        <div>
+          <label className="flex items-start gap-3 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={acceptedTerms}
+              onChange={(e) => setAcceptedTerms(e.target.checked)}
+              className="mt-0.5 size-4 accent-brand-600"
+            />
+            <span>
+              I have read and accept the{' '}
+              <Link to="/legal/terms" target="_blank" className="font-semibold text-brand-700">terms of use</Link> and the{' '}
+              <Link to="/legal/privacy" target="_blank" className="font-semibold text-brand-700">privacy policy</Link>.
+            </span>
+          </label>
+          {shown('terms') && <p className="mt-1.5 text-xs text-red-600">{shown('terms')}</p>}
+        </div>
         {error && <Alert>{error}</Alert>}
         <Button type="submit" className="w-full" size="lg" loading={busy}>Create account</Button>
       </form>

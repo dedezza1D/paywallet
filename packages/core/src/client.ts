@@ -1,7 +1,5 @@
 import * as session from './session'
 
-export const API_BASE = '/api'
-
 /** An RFC 7807 problem from the API, or a network failure (status 0). */
 export class ApiError extends Error {
   readonly status: number
@@ -45,7 +43,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       if (token) headers.Authorization = `Bearer ${token}`
     }
     try {
-      return await fetch(API_BASE + path, {
+      return await fetch(session.baseUrl() + path, {
         method,
         headers,
         body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
@@ -57,7 +55,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
   let response = await send()
   // The access token may have expired between the check and the call; one rotation and retry is enough.
-  if (response.status === 401 && auth && session.refreshToken()) {
+  if (response.status === 401 && auth && session.hasRefreshToken()) {
     if (await session.refresh()) response = await send()
   }
   if (response.status === 401 && auth) session.end()
