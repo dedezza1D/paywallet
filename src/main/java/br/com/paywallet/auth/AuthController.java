@@ -17,6 +17,8 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 
 import br.com.paywallet.auth.AuthDtos.ChangePasswordRequest;
+import br.com.paywallet.auth.AuthDtos.CloseAccountRequest;
+import br.com.paywallet.auth.AuthDtos.ClosureCheck;
 import br.com.paywallet.auth.AuthDtos.DisableMfaRequest;
 import br.com.paywallet.auth.AuthDtos.EmailRequest;
 import br.com.paywallet.auth.AuthDtos.LoginRequest;
@@ -39,14 +41,16 @@ public class AuthController {
     private final AccountService accounts;
     private final MfaService mfa;
     private final TransactionPinService pins;
+    private final AccountClosureService closures;
     private final Map<String, Object> publicJwks;
 
     public AuthController(AuthService auth, AccountService accounts, MfaService mfa, TransactionPinService pins,
-                          RSAKey jwtSigningKey) {
+                          AccountClosureService closures, RSAKey jwtSigningKey) {
         this.auth = auth;
         this.accounts = accounts;
         this.mfa = mfa;
         this.pins = pins;
+        this.closures = closures;
         this.publicJwks = new JWKSet(jwtSigningKey.toPublicJWK()).toJSONObject();
     }
 
@@ -124,6 +128,19 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changePassword(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody ChangePasswordRequest req) {
         accounts.changePassword(userId(jwt), req.currentPassword(), req.newPassword());
+    }
+
+    @GetMapping("/auth/account/closure")
+    public ClosureCheck closureCheck(@AuthenticationPrincipal Jwt jwt) {
+        var blockers = closures.blockers(userId(jwt));
+        return new ClosureCheck(blockers.isEmpty(), blockers);
+    }
+
+    /** Closes the account for good: records are kept as the law requires, but it cannot be used again. */
+    @PostMapping("/auth/account/closure")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void closeAccount(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CloseAccountRequest req) {
+        closures.close(userId(jwt), req.password(), req.code());
     }
 
     @GetMapping("/.well-known/jwks.json")

@@ -115,7 +115,9 @@ services:
 
   # The web app and the HTTPS edge: serves the app and proxies /api to the application.
   caddy:
-    build: ./frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     depends_on:
       - app
     environment:

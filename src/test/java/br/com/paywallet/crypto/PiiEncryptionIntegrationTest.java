@@ -38,7 +38,7 @@ class PiiEncryptionIntegrationTest extends IntegrationTest {
         mvc.perform(get("/users/{id}", user.id()).with(as(user)))
                 .andExpect(jsonPath("$.document").value(user.document()));
         assertThatThrownBy(() -> userService.create(new CreateUserRequest("Twin", user.document(),
-                "twin-" + UUID.randomUUID() + "@mail.com", PASSWORD, UserType.COMMON)))
+                "twin-" + UUID.randomUUID() + "@mail.com", PASSWORD, UserType.COMMON, true)))
                 .isInstanceOf(BusinessException.class).hasMessage("Document already registered");
     }
 

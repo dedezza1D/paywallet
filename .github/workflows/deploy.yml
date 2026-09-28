@@ -51,9 +51,9 @@ jobs:
       matrix:
         include:
           - image: paywallet
-            context: .
+            dockerfile: Dockerfile
           - image: paywallet-web
-            context: frontend
+            dockerfile: frontend/Dockerfile
     steps:
       - uses: actions/checkout@v5
 
@@ -62,7 +62,8 @@ jobs:
       - name: Build
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
+          context: .
+          file: ${{ matrix.dockerfile }}
           load: true
           tags: ${{ matrix.image }}:ci
           cache-from: type=gha,scope=${{ matrix.image }}

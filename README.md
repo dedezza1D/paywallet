@@ -1,8 +1,9 @@
 # PayWallet
 
 Digital wallet payments platform built with **Java 21 and Spring Boot 3.5**, using polyglot persistence:
-each kind of data lives in the store that best fits it. A **React** web app (`frontend/`) covers the customer
-experience end to end.
+each kind of data lives in the store that best fits it. A **React** web app (`frontend/`) and a **React Native**
+app for Android and iOS (`mobile/`) cover the customer experience, sharing the API client and session handling in
+`packages/core`.
 
 ```
   POST /transfer
@@ -67,6 +68,16 @@ experience end to end.
   `X-Device-Id`, or by the user agent) sends an email with the time, IP address and device.
 - **Per-IP limits**: sign-up, login, codes and password reset accept 30 requests per minute from one address
   (`AUTH_IP_RATE_LIMIT`), against password spraying and guessing across accounts.
+- **Terms of use**: sign-up requires `acceptedTerms: true`; the account stores the accepted version
+  (`TERMS_VERSION`) and when it was accepted.
+- **Account closure** (required by both app stores): `GET /auth/account/closure` lists what still blocks it
+  (balance, loans, credit card balance, pending payments, open charges) and `POST /auth/account/closure` closes the
+  account with the password and, when enabled, a second-factor code. Pix keys are released, cards cancelled and
+  every session revoked; access tokens already issued are refused through a Redis marker until they expire, the
+  account can no longer sign in and nobody can send money to it. The ledger history is kept, as financial records
+  must be.
+- **CORS** is off by default, since the web app is served from the same origin as the API. `CORS_ALLOWED_ORIGINS`
+  (comma separated) allows other origins, such as the mobile app's web preview in development.
 
 Configure `JWT_PRIVATE_KEY` (RSA PKCS#8 PEM) outside development. Without it an ephemeral key is generated at
 startup, so tokens die on restart and do not work across instances.
@@ -488,7 +499,9 @@ Tailwind CSS. It covers the customer side of every feature: sign-up with email c
 authentication, password reset, transaction PIN, balance and statement, transfers, Pix (keys, QR codes, sending by key
 or copy-and-paste code, history, returns and fraud reports), bill payments, debit and credit cards (bills, installment
 plans, disputes), loans (credit analysis, simulation with IOF and CET, early payoff), the store with cashback, earnings,
-documents and merchant payment links (`/pay/{token}`). Merchant and back-office screens are not part of it yet.
+documents, merchant payment links (`/pay/{token}`), account closure, and the terms of use and privacy policy
+(`/legal/terms`, `/legal/privacy`, also opened by the mobile app). Merchant and back-office screens are not part of
+it yet.
 
 - Payments go through one PIN dialog; each confirmed payment gets its own `Idempotency-Key`, reused if the user
   retries after a wrong PIN, so a retry never pays twice. Pending Pix, bills and orders refresh until they settle.
@@ -500,11 +513,42 @@ documents and merchant payment links (`/pay/{token}`). Merchant and back-office 
 Development server with hot reload, against the Compose stack (API through `https://localhost`):
 
 ```bash
-cd frontend
-npm install
-npm run dev        # http://localhost:5173
-npm test           # unit tests (Vitest)
+npm install                            # at the repository root: npm workspaces for packages/core, frontend and mobile
+npm run dev --workspace frontend       # http://localhost:5173
+npm test --workspace frontend          # unit tests (Vitest)
+npm test --workspace @paywallet/core
 ```
+
+## Mobile app
+
+`mobile/` is the Android and iOS app in **React Native with Expo** (SDK 57, Expo Router). It shares the API client,
+session handling, queries, formatting and validation with the web app through `packages/core`, and covers sign-up
+with the terms, email confirmation, sign-in with two-factor authentication, password reset, balance and activity,
+Pix (send by key or copy-and-paste code, receive with a key and QR code, history), transfers, bill payments, the
+transaction PIN and account closure.
+
+- The refresh token and a random device id live in the OS keychain (Keychain on iOS, Keystore on Android) through
+  `expo-secure-store`, readable only while the device is unlocked and never included in backups
+  (`android.allowBackup` is off).
+- Optional biometrics: unlock the app with Face ID or a fingerprint after it stays in the background for a minute,
+  and confirm payments with biometrics instead of typing the PIN. The PIN is then kept in the keychain behind
+  biometric authentication, and a wrong stored PIN turns the feature off.
+- `EXPO_PUBLIC_API_URL` sets the API root at build time (default `https://localhost/api`) and `EXPO_PUBLIC_WEB_URL`
+  the site that serves the legal pages. Store identifiers come from `APP_ID` (default `br.com.paywallet.app`).
+
+Against the Compose stack, from a phone with Expo Go on the same network or in the browser preview. A phone reaches
+the API at the computer's address and must trust Caddy's root certificate (see Running):
+
+```bash
+npm install
+echo "EXPO_PUBLIC_API_URL=https://192.168.0.10/api" > mobile/.env.local
+npm run start --workspace mobile -- --port 8082   # QR code for Expo Go; press w for the browser preview
+npm run typecheck --workspace mobile
+```
+
+Port 8082 avoids the management port. The browser preview runs on another origin, so it needs
+`CORS_ALLOWED_ORIGINS=http://localhost:8082` in the application. Store builds use EAS (`mobile/eas.json`):
+`npx eas-cli build --profile production` once the Expo, Apple and Google accounts are set up.
 
 ## Kubernetes
 
@@ -546,7 +590,7 @@ application runs directly.
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/users` | public | Sign up (also opens the ledger wallet) |
+| POST | `/users` | public | Sign up with `acceptedTerms: true` (also opens the ledger wallet) |
 | POST | `/auth/login` | public | Email and password to access and refresh tokens |
 | POST | `/auth/refresh` | public | Rotates the refresh token and issues a new access token |
 | POST | `/auth/logout` | public | Revokes the refresh token's session |
@@ -560,6 +604,8 @@ application runs directly.
 | POST | `/auth/mfa/enable` | user | Confirm TOTP with a code; returns the recovery codes once |
 | POST | `/auth/mfa/disable` | user | Turn TOTP off (`password` and a code or recovery code) |
 | POST | `/auth/login/mfa` | public | Finish a login that answered `mfaRequired` (`mfaToken`, `code`) |
+| GET | `/auth/account/closure` | user | Whether the account can be closed, and what blocks it |
+| POST | `/auth/account/closure` | user | Close the account (`password`, and `code` with two-factor authentication) |
 | GET | `/.well-known/jwks.json` | public | Public key to validate access tokens |
 | GET | `/feed` | public | Public feed, without amounts |
 | GET | `/users/{id}` | owner | User profile |
@@ -644,7 +690,7 @@ API=https://localhost/api   # -k below: Caddy's local CA is not trusted by defau
 
 curl -k -X POST $API/users -H "Content-Type: application/json" -d '{
   "fullName": "Mary Smith", "document": "12345678901", "email": "mary@mail.com",
-  "password": "password1234", "type": "COMMON" }'
+  "password": "password1234", "type": "COMMON", "acceptedTerms": true }'
 
 # The 6-digit code arrives at Mailpit (http://localhost:8025)
 curl -k -X POST $API/auth/email/verify -H "Content-Type: application/json" \
@@ -668,8 +714,8 @@ curl -k -X POST $API/transfer -H "Authorization: Bearer $TOKEN" -H "Content-Type
 | 201 | Transfer or sign-up completed |
 | 200 + `Idempotent-Replayed` | Same `Idempotency-Key` repeated: original result, no money moved |
 | 400 | Invalid payload or missing/invalid `Idempotency-Key` |
-| 401 | Missing, invalid or expired token; wrong credentials; invalid refresh token |
-| 403 | Another user's resources, missing role, email not confirmed, wrong transaction PIN, or payment denied by the authorizer or the risk analysis |
+| 401 | Missing, invalid or expired token; wrong credentials; invalid refresh token; closed account |
+| 403 | Another user's resources, missing role, email not confirmed, signing in to a closed account, wrong transaction PIN, or payment denied by the authorizer or the risk analysis |
 | 428 | Transaction PIN missing or not set yet |
 | 404 | User or document not found |
 | 409 | Same `Idempotency-Key` still in progress, or duplicate record |
@@ -696,6 +742,8 @@ curl -k -X POST $API/transfer -H "Authorization: Bearer $TOKEN" -H "Content-Type
 
 ## Known limitations and next steps
 
+- The terms of use and privacy policy are drafts with placeholders (company name, CNPJ, contacts, partner
+  institution) and need review by a lawyer before launch. The mobile app still uses placeholder icons.
 - Records in the DLT are not replayed automatically; they need inspection and a manual re-publish.
 - The outbox is polled; at very high volume, change data capture (e.g. Debezium) on `outbox_events` avoids polling.
 - Access tokens cannot be revoked before they expire (15 min); refresh tokens can, including by a password reset.

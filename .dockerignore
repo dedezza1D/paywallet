@@ -6,4 +6,6 @@ target/
 *.iml
 README.md
 observability/
-caddy/
+**/node_modules
+**/dist
+mobile/

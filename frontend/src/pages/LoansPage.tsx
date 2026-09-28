@@ -1,12 +1,13 @@
 import { HandCoins } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 import { Link } from 'react-router'
-import { ApiError, errorMessage, newIdempotencyKey } from '../api/client'
-import { simulateLoan, useContractLoan, useCreditAnalysis, useLoans } from '../api/queries'
-import type { LoanQuote } from '../api/types'
+import {
+  ApiError, date, errorMessage, money, newIdempotencyKey, parseAmount, percent, simulateLoan, useContractLoan,
+  useCreditAnalysis, useLoans,
+} from '@paywallet/core'
+import type { LoanQuote } from '@paywallet/core'
 import { useToast } from '../components/feedback'
 import { Alert, Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Row, SectionTitle, Spinner, StatusBadge } from '../components/ui'
-import { date, money, parseAmount, percent } from '../lib/format'
 
 export default function LoansPage() {
   const analysis = useCreditAnalysis()

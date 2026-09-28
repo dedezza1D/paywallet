@@ -3,10 +3,12 @@ package br.com.paywallet.auth;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.function.Supplier;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -23,9 +25,13 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationEntryPoint;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.oauth2.server.resource.web.access.BearerTokenAccessDeniedHandler;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 
@@ -43,9 +49,24 @@ public class SecurityConfig {
     private static final String ADMIN = "ROLE_ADMIN";
     private static final String MERCHANT = "TYPE_MERCHANT";
 
+    private static CorsConfigurationSource corsSource(List<String> origins) {
+        var config = new CorsConfiguration();
+        config.setAllowedOrigins(origins);
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key", "X-Transaction-Pin",
+                "X-Device-Id"));
+        config.setExposedHeaders(List.of("Retry-After", "X-Trace-Id", "Idempotent-Replayed"));
+        var source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }
+
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, SecurityProperties props,
-                                            ObjectMapper objectMapper) throws Exception {
+                                            ObjectMapper objectMapper, StringRedisTemplate redis) throws Exception {
+        if (props.corsAllowedOrigins() != null && !props.corsAllowedOrigins().isEmpty()) {
+            http.cors(cors -> cors.configurationSource(corsSource(props.corsAllowedOrigins())));
+        }
         http
                 .csrf(csrf -> csrf.disable())
                 .httpBasic(basic -> basic.disable())
@@ -79,6 +100,7 @@ public class SecurityConfig {
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(problemEntryPoint(objectMapper))
                         .accessDeniedHandler(problemAccessDenied(objectMapper)))
+                .addFilterAfter(new ClosedAccountFilter(redis), BearerTokenAuthenticationFilter.class)
                 .headers(Customizer.withDefaults());
         return http.build();
     }

@@ -1,10 +1,8 @@
 import { ArrowLeftRight, FileText, Gift, History, QrCode, TrendingUp } from 'lucide-react'
 import { Link } from 'react-router'
-import { useCashback, useLimits, useStatement, useYield } from '../api/queries'
-import { useUser } from '../auth/AuthContext'
+import { money, percent, useCashback, useLimits, useStatement, useUser, useYield } from '@paywallet/core'
 import { ActivityList, BalanceCard } from '../components/wallet'
 import { Alert, Card, EmptyState, SectionTitle, Spinner } from '../components/ui'
-import { money, percent } from '../lib/format'
 
 const actions = [
   { to: '/pix', label: 'Pix', icon: QrCode },

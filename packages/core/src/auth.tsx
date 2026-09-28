@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, type ReactNode, use, useCallback, useEffect, useMemo, useState } from 'react'
-import { request } from '../api/client'
-import * as session from '../api/session'
-import type { MfaChallenge, TokenResponse, User } from '../api/types'
+import { request } from './client'
+import * as session from './session'
+import type { MfaChallenge, TokenResponse, User } from './types'
 
 type Status = 'loading' | 'signedIn' | 'signedOut'
 
@@ -32,11 +32,13 @@ export function useUser(): User {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
-  const [status, setStatus] = useState<Status>(() => (session.refreshToken() ? 'loading' : 'signedOut'))
+  const [status, setStatus] = useState<Status>('loading')
 
   useEffect(() => {
     if (status === 'loading') {
-      void session.refresh().then((ok) => setStatus(ok ? 'signedIn' : 'signedOut'))
+      void session.restore()
+        .then((saved) => (saved ? session.refresh() : false))
+        .then((ok) => setStatus(ok ? 'signedIn' : 'signedOut'))
     }
     return session.onEnd(() => {
       setStatus('signedOut')
@@ -56,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: 'POST',
       auth: false,
       body: { email, password },
-      headers: { 'X-Device-Id': session.deviceId() },
+      headers: { 'X-Device-Id': await session.deviceId() },
     })
     if ('mfaRequired' in result) return result
     session.start(result)
@@ -69,14 +71,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: 'POST',
       auth: false,
       body: { mfaToken, code },
-      headers: { 'X-Device-Id': session.deviceId() },
+      headers: { 'X-Device-Id': await session.deviceId() },
     })
     session.start(tokens)
     setStatus('signedIn')
   }, [])
 
   const logout = useCallback(async () => {
-    const refreshToken = session.refreshToken()
+    const refreshToken = session.currentRefreshToken()
     if (refreshToken) {
       await request('/auth/logout', { method: 'POST', auth: false, body: { refreshToken } }).catch(() => undefined)
     }

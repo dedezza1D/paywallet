@@ -131,7 +131,8 @@ class AccountIntegrationTest extends IntegrationTest {
     private ResultActions signUp(String email, String password) throws Exception {
         String document = "%011d".formatted(ThreadLocalRandom.current().nextLong(1_000_000_000L, 99_999_999_999L));
         return send("/users", """
-                {"fullName": "New Customer", "document": "%s", "email": "%s", "password": "%s", "type": "COMMON"}
+                {"fullName": "New Customer", "document": "%s", "email": "%s", "password": "%s", "type": "COMMON",
+                 "acceptedTerms": true}
                 """.formatted(document, email, password));
     }
 

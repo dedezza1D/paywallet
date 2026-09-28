@@ -39,13 +39,10 @@ jobs:
           path: target/surefire-reports/
           retention-days: 7
 
-  web:
-    name: Web app
+  apps:
+    name: Web and mobile apps
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: frontend
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -53,10 +50,14 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
       - run: npm ci
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+      - run: npm run typecheck --workspace @paywallet/core
+      - run: npm test --workspace @paywallet/core
+      - run: npm run lint --workspace frontend
+      - run: npm run typecheck --workspace frontend
+      - run: npm test --workspace frontend
+      - run: npm run build --workspace frontend
+      - run: npm run typecheck --workspace mobile
+      - run: npm run doctor --workspace mobile
+      - run: npm run bundle --workspace mobile

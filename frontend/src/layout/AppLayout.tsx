@@ -4,9 +4,8 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
-import { useAuth, useUser } from '../auth/AuthContext'
+import { initials, useAuth, useUser } from '@paywallet/core'
 import { cx } from '../lib/cx'
-import { initials } from '../lib/format'
 
 type Item = { to: string; label: string; icon: LucideIcon; mobile?: boolean }
 

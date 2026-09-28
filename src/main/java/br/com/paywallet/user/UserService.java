@@ -1,7 +1,9 @@
 package br.com.paywallet.user;
 
+import java.time.Clock;
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -22,14 +24,19 @@ public class UserService {
     private final LedgerService ledger;
     private final ApplicationEventPublisher events;
     private final FieldCipher cipher;
+    private final String termsVersion;
+    private final Clock clock;
 
     public UserService(UserRepository repository, PasswordEncoder passwordEncoder, LedgerService ledger,
-                       ApplicationEventPublisher events, FieldCipher cipher) {
+                       ApplicationEventPublisher events, FieldCipher cipher,
+                       @Value("${app.legal.terms-version}") String termsVersion, Clock clock) {
         this.repository = repository;
         this.passwordEncoder = passwordEncoder;
         this.ledger = ledger;
         this.events = events;
         this.cipher = cipher;
+        this.termsVersion = termsVersion;
+        this.clock = clock;
     }
 
     @Transactional
@@ -49,8 +56,10 @@ public class UserService {
         if (repository.existsByEmail(email)) {
             throw new BusinessException("Email already registered");
         }
-        var user = repository.save(new User(req.fullName(), req.document(), documentIndex, email,
-                passwordEncoder.encode(req.password()), req.type()));
+        var newUser = new User(req.fullName(), req.document(), documentIndex, email,
+                passwordEncoder.encode(req.password()), req.type());
+        newUser.acceptTerms(termsVersion, clock.instant());
+        var user = repository.save(newUser);
         ledger.openUserWallet(user.getId());
         events.publishEvent(new UserRegisteredEvent(user.getId(), user.getEmail()));
         return UserResponse.from(user);

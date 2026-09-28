@@ -117,6 +117,9 @@ public class WalletService {
         if (!payer.getType().canSendMoney()) {
             throw new BusinessException("Merchants cannot send transfers");
         }
+        if (payee.isClosed()) {
+            throw new BusinessException("The recipient's account is closed");
+        }
         var payerWallet = ledger.walletOf(payer.getId());
         var payeeWallet = ledger.walletOf(payee.getId());
 

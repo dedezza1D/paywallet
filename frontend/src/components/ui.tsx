@@ -5,7 +5,7 @@ import {
   useEffect, useId, useRef, useState,
 } from 'react'
 import { cx } from '../lib/cx'
-import { money } from '../lib/format'
+import { money } from '@paywallet/core'
 
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {

@@ -2,13 +2,16 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { request } from './client'
 import * as session from './session'
 import type {
-  Balance, BillPayment, BillQuote, Card, CardStatement, CardTransaction, Cashback, CreditAnalysis, Dispute,
+  Balance, BillPayment, ClosureCheck, BillQuote, Card, CardStatement, CardTransaction, Cashback, CreditAnalysis, Dispute,
   DisputeReason, FeedItem, FraudClaim, InstallmentOption, InstallmentPayment, KeyOwner, KycDocument, KycType, Limits,
   Loan, LoanQuote, Order, Page, PaymentReceipt, PixKey, PixKeyType, PixPayment, PixReturn, PixReturnReason, PrepaymentQuote,
   Product, PublicCharge, PublicFeedItem, StatementEntry, TransferResponse, Visibility, YieldSummary,
 } from './types'
 
 const me = () => session.claims()!.userId
+
+/** A file picked on mobile; React Native's FormData uploads it from its uri. */
+export type NativeFile = { uri: string; name: string; type: string }
 
 /** An outflow: the PIN confirms it and the key makes retries safe (the same key never moves money twice). */
 export type Confirmed = { pin: string; idempotencyKey: string }
@@ -23,6 +26,17 @@ const MONEY_KEYS = [['balance'], ['statement'], ['limits'], ['feed'], ['pix-paym
 export function useInvalidateMoney() {
   const queryClient = useQueryClient()
   return () => Promise.all(MONEY_KEYS.map((queryKey) => queryClient.invalidateQueries({ queryKey })))
+}
+
+// ---------- Account ----------
+
+export const useClosureCheck = () =>
+  useQuery({ queryKey: ['closure'], queryFn: () => request<ClosureCheck>('/auth/account/closure'), staleTime: 0 })
+
+/** Closes the account for good, then ends the local session. */
+export async function closeAccount(body: { password: string; code?: string }) {
+  await request('/auth/account/closure', { method: 'POST', body })
+  session.end()
 }
 
 // ---------- Wallet ----------
@@ -347,10 +361,10 @@ export const useKycDocuments = () =>
 export function useUploadKyc() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ type, file }: { type: KycType; file: File }) => {
+    mutationFn: ({ type, file }: { type: KycType; file: Blob | NativeFile }) => {
       const form = new FormData()
       form.append('type', type)
-      form.append('file', file)
+      form.append('file', file as Blob)
       return request<KycDocument>(`/users/${me()}/kyc-documents`, { method: 'POST', body: form })
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['kyc'] }),

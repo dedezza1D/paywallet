@@ -14,15 +14,15 @@ kubectl config use-context "kind-$CLUSTER" > /dev/null
 
 # Tagged by content: with a fixed tag, a rebuilt image would not change the pod template and never roll out.
 build() {
-  docker build -q -t "$1:dev" "$2" > /dev/null
+  docker build -q -t "$1:dev" -f "$2" "$ROOT" > /dev/null
   local tag
   tag=dev-$(docker image inspect "$1:dev" --format '{{.Id}}' | cut -d: -f2 | cut -c1-12)
   docker tag "$1:dev" "$1:$tag"
   kind load docker-image "$1:$tag" --name "$CLUSTER" > /dev/null
   echo "$tag"
 }
-TAG=$(build paywallet "$ROOT")
-WEB_TAG=$(build paywallet-web "$ROOT/frontend")
+TAG=$(build paywallet "$ROOT/Dockerfile")
+WEB_TAG=$(build paywallet-web "$ROOT/frontend/Dockerfile")
 
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -n "$NAMESPACE" -f "$ROOT/deploy/kind/dependencies.yaml"

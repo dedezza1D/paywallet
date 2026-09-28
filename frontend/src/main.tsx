@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ApiError } from './api/client'
+import { ApiError, AuthProvider, session } from '@paywallet/core'
 import App from './App'
-import { AuthProvider } from './auth/AuthContext'
 import './index.css'
+import { webPlatform } from './platform'
+
+session.configure(webPlatform)
 
 const queryClient = new QueryClient({
   defaultOptions: {

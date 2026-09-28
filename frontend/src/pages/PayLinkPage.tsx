@@ -1,14 +1,11 @@
 import { CheckCircle2, Store } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router'
-import { errorMessage } from '../api/client'
-import { usePayCharge, usePublicCharge } from '../api/queries'
-import type { PaymentReceipt } from '../api/types'
-import { useAuth } from '../auth/AuthContext'
+import { dateTime, errorMessage, money, useAuth, usePayCharge, usePublicCharge } from '@paywallet/core'
+import type { PaymentReceipt } from '@paywallet/core'
 import { actionError, usePin } from '../components/feedback'
 import { Alert, Button, Card, CopyButton, QrCode, Row, Spinner, StatusBadge } from '../components/ui'
 import { Logo } from '../layout/AppLayout'
-import { dateTime, money } from '../lib/format'
 
 /** The page behind a merchant's payment link: anyone can see it; paying with the wallet needs a signed-in user. */
 export default function PayLinkPage() {

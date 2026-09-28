@@ -1,5 +1,5 @@
 import { Store } from 'lucide-react'
-import { useAuth } from '../auth/AuthContext'
+import { useAuth } from '@paywallet/core'
 import { Button, Card } from '../components/ui'
 import { Logo } from '../layout/AppLayout'
 

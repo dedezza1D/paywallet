@@ -1,4 +1,4 @@
-import type { LedgerType } from '../api/types'
+import type { LedgerType } from './types'
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 const dateFormat = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })

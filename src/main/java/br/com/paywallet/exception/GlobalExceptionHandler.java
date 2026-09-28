@@ -45,6 +45,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
     }
 
+    @ExceptionHandler(AccountClosedException.class)
+    ProblemDetail handleClosed(AccountClosedException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
     @ExceptionHandler(EmailNotVerifiedException.class)
     ProblemDetail handleEmailNotVerified(EmailNotVerifiedException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());

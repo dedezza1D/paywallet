@@ -1,16 +1,16 @@
 import { ArrowDownLeft, ArrowUpRight, KeyRound, Plus, QrCode, Trash2 } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { errorMessage, newIdempotencyKey } from '../api/client'
-import { createQrCode, lookupPixKey, useDeletePixKey, usePixKeys, usePixPayments, useRegisterPixKey, useSendPix } from '../api/queries'
-import type { KeyOwner, PixKeyType } from '../api/types'
-import { useUser } from '../auth/AuthContext'
+import {
+  createQrCode, dateTime, errorMessage, lookupPixKey, maskDocument, money, newIdempotencyKey, parseAmount,
+  useDeletePixKey, usePixKeys, usePixPayments, useRegisterPixKey, useSendPix, useUser,
+} from '@paywallet/core'
+import type { KeyOwner, PixKeyType } from '@paywallet/core'
 import { actionError, usePin, useToast } from '../components/feedback'
 import {
   Alert, Badge, Button, Card, CopyButton, EmptyState, Input, Modal, PageHeader, QrCode as QrImage, Select, Spinner,
   StatusBadge, Tabs,
 } from '../components/ui'
-import { dateTime, maskDocument, money, parseAmount } from '../lib/format'
 
 type Tab = 'send' | 'receive' | 'history' | 'keys'
 
