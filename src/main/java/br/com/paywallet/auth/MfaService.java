@@ -15,6 +15,8 @@ import java.util.Locale;
 import java.util.UUID;
 
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -39,19 +41,28 @@ public class MfaService {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int RECOVERY_CODES = 8;
     private static final int CHALLENGE_ATTEMPTS = 5;
+    /** Atomic, so two logins racing with the same code cannot both pass. */
+    private static final RedisScript<Long> USE_STEP = new DefaultRedisScript<>("""
+            local last = tonumber(redis.call('GET', KEYS[1]) or '-1')
+            if last >= tonumber(ARGV[1]) then return 0 end
+            redis.call('SET', KEYS[1], ARGV[1], 'EX', 300)
+            return 1
+            """, Long.class);
 
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
     private final StringRedisTemplate redis;
+    private final AttemptGuard guard;
     private final JdbcTemplate jdbc;
     private final SecurityProperties.Mfa props;
     private final Clock clock;
 
     public MfaService(UserRepository users, PasswordEncoder passwordEncoder, StringRedisTemplate redis,
-                      JdbcTemplate jdbc, SecurityProperties props, Clock clock) {
+                      AttemptGuard guard, JdbcTemplate jdbc, SecurityProperties props, Clock clock) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.redis = redis;
+        this.guard = guard;
         this.jdbc = jdbc;
         this.props = props.mfa();
         this.clock = clock;
@@ -126,17 +137,26 @@ public class MfaService {
             throw new InvalidCredentialsException();
         }
         var user = users.findById(Long.valueOf(userId)).orElseThrow(InvalidCredentialsException::new);
-        if (acceptTotp(user, code) || acceptRecoveryCode(user, code)) {
+        var slot = guard.acquire(key + ":attempts", CHALLENGE_ATTEMPTS, props.challengeTtl());
+        if (slot == null) {
             redis.delete(key);
-            redis.delete(key + ":attempts");
-            return user;
+            throw new InvalidCredentialsException();
         }
-        Long attempts = redis.opsForValue().increment(key + ":attempts");
-        redis.expire(key + ":attempts", props.challengeTtl());
-        if (attempts != null && attempts >= CHALLENGE_ATTEMPTS) {
-            redis.delete(key);
+        boolean accepted = false;
+        try {
+            accepted = acceptTotp(user, code) || acceptRecoveryCode(user, code);
+        } finally {
+            if (accepted) {
+                slot.succeeded();
+            } else if (slot.failed() >= CHALLENGE_ATTEMPTS) {
+                redis.delete(key);
+            }
         }
-        throw new InvalidCredentialsException();
+        if (!accepted) {
+            throw new InvalidCredentialsException();
+        }
+        redis.delete(key);
+        return user;
     }
 
     private boolean acceptTotp(User user, String code) {
@@ -144,13 +164,8 @@ public class MfaService {
         if (step.isEmpty()) {
             return false;
         }
-        String lastKey = "mfa:last-step:" + user.getId();
-        String last = redis.opsForValue().get(lastKey);
-        if (last != null && Long.parseLong(last) >= step.getAsLong()) {
-            return false;
-        }
-        redis.opsForValue().set(lastKey, Long.toString(step.getAsLong()), Duration.ofMinutes(5));
-        return true;
+        Long used = redis.execute(USE_STEP, List.of("mfa:last-step:" + user.getId()), Long.toString(step.getAsLong()));
+        return used != null && used == 1;
     }
 
     private boolean acceptRecoveryCode(User user, String code) {

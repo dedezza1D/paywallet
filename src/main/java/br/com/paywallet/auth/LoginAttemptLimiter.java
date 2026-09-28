@@ -1,8 +1,5 @@
 package br.com.paywallet.auth;
 
-import java.time.Duration;
-
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import br.com.paywallet.exception.TooManyRequestsException;
@@ -14,32 +11,21 @@ import br.com.paywallet.exception.TooManyRequestsException;
 @Component
 class LoginAttemptLimiter {
 
-    private final StringRedisTemplate redis;
+    private final AttemptGuard guard;
     private final SecurityProperties props;
 
-    LoginAttemptLimiter(StringRedisTemplate redis, SecurityProperties props) {
-        this.redis = redis;
+    LoginAttemptLimiter(AttemptGuard guard, SecurityProperties props) {
+        this.guard = guard;
         this.props = props;
     }
 
-    void checkAllowed(String email) {
-        String failures = redis.opsForValue().get(key(email));
-        if (failures != null && Long.parseLong(failures) >= props.loginMaxAttempts()) {
-            Long ttl = redis.getExpire(key(email));
+    AttemptGuard.Slot acquire(String email) {
+        var slot = guard.acquire(key(email), props.loginMaxAttempts(), props.loginLockDuration());
+        if (slot == null) {
             throw new TooManyRequestsException("Too many login attempts. Please try again later.",
-                    ttl == null || ttl < 0 ? props.loginLockDuration() : Duration.ofSeconds(ttl));
+                    guard.lockedFor(key(email), props.loginLockDuration()));
         }
-    }
-
-    void recordFailure(String email) {
-        Long count = redis.opsForValue().increment(key(email));
-        if (count != null && count == 1) {
-            redis.expire(key(email), props.loginLockDuration());
-        }
-    }
-
-    void reset(String email) {
-        redis.delete(key(email));
+        return slot;
     }
 
     private static String key(String email) {

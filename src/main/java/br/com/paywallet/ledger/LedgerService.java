@@ -20,6 +20,8 @@ import br.com.paywallet.exception.NotFoundException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityNotFoundException;
+import jakarta.persistence.LockModeType;
 
 /**
  * The only writer of money. Every movement is a {@link LedgerTransaction} with two or more
@@ -92,9 +94,7 @@ public class LedgerService {
         validate(cmd.legs());
 
         Map<UUID, Account> locked = new HashMap<>();
-        cmd.legs().stream().map(Leg::accountId).distinct().sorted().forEach(id ->
-                locked.put(id, accounts.findByIdForUpdate(id)
-                        .orElseThrow(() -> new NotFoundException("Account %s not found".formatted(id)))));
+        cmd.legs().stream().map(Leg::accountId).distinct().sorted().forEach(id -> locked.put(id, lock(id)));
 
         // Postgres stores microseconds; truncating keeps the returned value identical to what a replay reads.
         var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
@@ -108,6 +108,20 @@ public class LedgerService {
         }
         countAfterCommit(cmd);
         return tx;
+    }
+
+    /**
+     * SELECT ... FOR UPDATE that re-reads the row. A locking query would return the instance the caller's transaction
+     * may have loaded earlier, and fail its version check if another movement committed in between.
+     */
+    private Account lock(UUID id) {
+        var account = em.getReference(Account.class, id);
+        try {
+            em.refresh(account, LockModeType.PESSIMISTIC_WRITE);
+        } catch (EntityNotFoundException e) {
+            throw new NotFoundException("Account %s not found".formatted(id));
+        }
+        return account;
     }
 
     /** Movements by type and the money they moved, counted only once committed. */

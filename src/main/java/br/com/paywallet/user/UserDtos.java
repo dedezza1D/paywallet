@@ -14,7 +14,7 @@ public final class UserDtos {
     }
 
     public record CreateUserRequest(
-            @NotBlank String fullName,
+            @NotBlank @Size(max = 255) String fullName,
             @NotBlank
             @Pattern(regexp = "\\d{11}|\\d{14}", message = "must be a CPF (11 digits) or CNPJ (14 digits), digits only")
             String document,

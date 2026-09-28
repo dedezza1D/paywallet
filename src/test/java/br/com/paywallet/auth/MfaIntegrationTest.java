@@ -29,6 +29,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import com.jayway.jsonpath.JsonPath;
 
 import br.com.paywallet.IntegrationTest;
+import br.com.paywallet.exception.InvalidCredentialsException;
 import br.com.paywallet.user.UserDtos.UserResponse;
 import br.com.paywallet.user.UserType;
 import jakarta.servlet.ServletException;
@@ -36,6 +37,7 @@ import jakarta.servlet.ServletException;
 class MfaIntegrationTest extends IntegrationTest {
 
     @Autowired StringRedisTemplate redis;
+    @Autowired MfaService mfa;
 
     @Test
     void enabledTotpTurnsLoginIntoTwoSteps() throws Exception {
@@ -69,6 +71,27 @@ class MfaIntegrationTest extends IntegrationTest {
         String again = JsonPath.read(login(user.email(), PASSWORD, "phone-1").andReturn().getResponse()
                 .getContentAsString(), "$.mfaToken");
         mfaLogin(again, recovery.getFirst()).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void oneCodeSignsInOnceEvenWhenLoginsRace() throws Exception {
+        var user = newUser(UserType.COMMON, "Racing Two Factor");
+        String secret = JsonPath.read(mvc.perform(post("/auth/mfa/setup").with(as(user)))
+                .andReturn().getResponse().getContentAsString(), "$.secret");
+        long step = Instant.now().getEpochSecond() / Totp.STEP_SECONDS;
+        code(user, "/auth/mfa/enable", Totp.code(secret, step)).andExpect(status().isOk());
+        String code = Totp.code(secret, step + 1);
+
+        List<String> outcomes = AttemptGuardIntegrationTest.inParallel(8, () -> {
+            try {
+                mfa.completeChallenge(mfa.startChallenge(user.id()), code);
+                return "signed in";
+            } catch (InvalidCredentialsException e) {
+                return "refused";
+            }
+        });
+
+        assertThat(outcomes).filteredOn("signed in"::equals).hasSize(1);
     }
 
     @Test

@@ -1,6 +1,7 @@
 package br.com.paywallet.auth;
 
 import java.util.Locale;
+import java.util.Optional;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -48,15 +49,22 @@ public class AuthService {
 
     public LoginResult login(String email, String password, DeviceAlerts.Device device) {
         String normalized = email.trim().toLowerCase(Locale.ROOT);
-        limiter.checkAllowed(normalized);
-
-        var user = users.findByEmail(normalized);
-        boolean matches = passwordEncoder.matches(password, user.map(User::getPassword).orElse(dummyHash));
+        var slot = limiter.acquire(normalized);
+        Optional<User> user = Optional.empty();
+        boolean matches = false;
+        try {
+            user = users.findByEmail(normalized);
+            matches = passwordEncoder.matches(password, user.map(User::getPassword).orElse(dummyHash));
+        } finally {
+            if (user.isPresent() && matches) {
+                slot.succeeded();
+            } else {
+                slot.failed();
+            }
+        }
         if (user.isEmpty() || !matches) {
-            limiter.recordFailure(normalized);
             throw new InvalidCredentialsException();
         }
-        limiter.reset(normalized);
         if (!user.get().isEmailVerified()) {
             throw new EmailNotVerifiedException();
         }

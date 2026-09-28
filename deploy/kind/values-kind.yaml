@@ -1,0 +1,41 @@
+# Local kind cluster: image loaded with `kind load`, dependencies from dependencies.yaml, development secrets.
+image:
+  repository: paywallet
+  tag: dev  # up.sh sets a content-based tag
+  pullPolicy: Never
+
+# kind has no metrics server, so a fixed number of replicas instead of the autoscaler.
+autoscaling:
+  enabled: false
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 768Mi
+
+config:
+  DB_URL: jdbc:postgresql://postgres:5432/paywallet
+  DB_USER: paywallet
+  REDIS_HOST: redis
+  MONGO_URI: mongodb://mongo:27017/paywallet
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  S3_ENDPOINT: http://localstack:4566
+  S3_CREATE_BUCKET: "true"
+  KMS_ENDPOINT: http://localstack:4566
+  KMS_CREATE_MASTER_KEY: "true"
+  SMTP_HOST: mailpit
+  SMTP_PORT: "1025"
+  PAYMENT_LINK_BASE_URL: http://localhost:8080/pay/
+  FORWARD_HEADERS_STRATEGY: none
+  ALLOW_SELF_DEPOSIT: "true"
+  OTLP_TRACING_EXPORT_ENABLED: "false"
+
+secrets:
+  DB_PASSWORD: paywallet
+  PIX_WEBHOOK_SECRET: dev-only-webhook-secret
+  CARD_WEBHOOK_SECRET: dev-only-card-webhook-secret
+  VOUCHER_KEY: mVA0yS2utY5uFJAj5mDvHGqvZCT8bhlSXbz079HZL9o=
+  AUTH_CODE_PEPPER: dev-only-code-pepper

@@ -54,8 +54,9 @@ each kind of data lives in the store that best fits it.
 - **Transaction PIN**: every endpoint that moves money out (transfers, Pix and Pix returns, charge payments and
   refunds, bills, marketplace, card statements, loan installments and prepayments) requires the user's 6-digit PIN
   in `X-Transaction-Pin`, so a stolen session or password alone cannot move money. It is set or changed with the
-  account password (`POST /auth/pin`), stored with BCrypt, and refuses repeated digits and sequences. Without it
-  the answer is 428; five wrong PINs lock outflows for 30 minutes (429).
+  account password (`POST /auth/pin`), stored as an HMAC under the KMS-protected index key, and refuses repeated
+  digits and sequences. Without it the answer is 428; five wrong PINs lock outflows for 30 minutes (429), even when
+  the guesses arrive in parallel.
 - **Two-factor authentication** (TOTP, RFC 6238, any authenticator app): `POST /auth/mfa/setup` returns the secret
   and an `otpauth://` URI for the QR code, `POST /auth/mfa/enable` confirms it with a first code and returns 8
   single-use recovery codes (stored hashed). From then on `POST /auth/login` answers `mfaRequired` with a 5-minute
@@ -427,10 +428,12 @@ the alert queue in `/admin/fraud`: dismissing an alert, or confirming fraud, whi
 
 - **TLS**: in Docker Compose the API is only reachable through **Caddy**, which terminates HTTPS on
   https://localhost with a certificate from its local CA, redirects HTTP to HTTPS and adds HSTS and hardening
-  headers. The application trusts `X-Forwarded-*` only when `FORWARD_HEADERS_STRATEGY=framework`, which must be
-  set only when every request comes through the proxy. In production the load balancer or ingress plays Caddy's
-  role; connections to PostgreSQL (`sslmode=verify-full` in `DB_URL`), Redis (`spring.data.redis.ssl.enabled`),
-  Kafka (`security.protocol=SSL`) and AWS use TLS through standard configuration.
+  headers. With `FORWARD_HEADERS_STRATEGY=native` the application takes the client address and scheme from
+  `X-Forwarded-For` and `X-Forwarded-Proto`, only when the request comes from a private-network proxy; the RFC 7239
+  `Forwarded` header, which Caddy passes through untouched, is ignored so clients cannot pick their own address.
+  In production the load balancer or ingress plays Caddy's role; connections to PostgreSQL (`sslmode=verify-full`
+  in `DB_URL`), Redis (`spring.data.redis.ssl.enabled`), Kafka (`security.protocol=SSL`) and AWS use TLS through
+  standard configuration.
 - **Personal data at rest**: CPF/CNPJ, Pix key values and phone numbers are encrypted per field with AES-256-GCM
   (`enc:v1:<key id>:...`, the key id also authenticated). Lookups and unique constraints use a **blind index**, the
   HMAC-SHA256 of the value under a separate key, so resolving a Pix key or checking a duplicate CPF never decrypts
@@ -475,6 +478,37 @@ must be running:
 ```bash
 mvn test
 ```
+
+## Kubernetes
+
+The Helm chart in `deploy/helm/paywallet` runs the application as a stateless Deployment:
+
+- Rolling updates that never drop below the desired replicas, a PodDisruptionBudget, CPU autoscaling and pods
+  spread across nodes.
+- Startup, liveness and readiness probes on the management port. Readiness turns false as soon as shutdown
+  starts, and in-flight requests get 20 s to finish.
+- Non-root, read-only root filesystem, no Linux capabilities, no service account token.
+- A NetworkPolicy that exposes the management port (health and metrics) only to the monitoring namespace, plus an
+  optional Ingress and Prometheus Operator ServiceMonitor.
+- Configuration from `values.yaml` (`config`) and secrets from an existing Secret (`existingSecret`, e.g. synced by
+  External Secrets) or from `secrets`.
+
+Local cluster with [kind](https://kind.sigs.k8s.io/) (requires docker, kind, kubectl and helm):
+
+```bash
+./deploy/kind/up.sh
+kubectl -n paywallet port-forward svc/paywallet 8080:8080
+```
+
+The script builds the image, loads it into the cluster, starts single-instance data stores
+(`deploy/kind/dependencies.yaml`), installs the chart with `deploy/kind/values-kind.yaml`, and runs `helm test`.
+It also generates the JWT signing key once and keeps it in the release Secret, so every replica accepts the
+tokens issued by the others, and tags the image by content so running it again after a change rolls out the new
+build. Remove everything with `kind delete cluster --name paywallet`.
+
+The *Container and chart* workflow lints the chart and validates the rendered manifests against the Kubernetes
+schemas, builds the image and fails on fixable critical vulnerabilities (Trivy), and deploys it to a kind cluster.
+On `main`, the image is published to `ghcr.io/dedezza1d/paywallet` tagged with the commit.
 
 ## API
 
@@ -667,3 +701,7 @@ curl -k -X POST $API/transfer -H "Authorization: Bearer $TOKEN" -H "Content-Type
   that asks for the second factor on unusual outflows, resetting a forgotten PIN through an email code,
   encrypting the counterparty identifiers (documents and Pix keys) kept by the antifraud tables, and a secret
   manager instead of the development secrets in `docker-compose.yml`.
+- Kubernetes still missing: scheduled jobs run on every replica (they are idempotent and claim work with
+  `SKIP LOCKED`, but a lock such as ShedLock would avoid the duplicate scans), autoscaling on queue depth instead
+  of CPU, TLS to Kafka and the databases in the kind setup, and GitOps delivery (Argo CD or Flux) of the published
+  image. kind's default network plugin does not enforce NetworkPolicy.
