@@ -12,11 +12,17 @@ if ! kind get clusters | grep -qx "$CLUSTER"; then
 fi
 kubectl config use-context "kind-$CLUSTER" > /dev/null
 
-docker build -t paywallet:dev "$ROOT"
 # Tagged by content: with a fixed tag, a rebuilt image would not change the pod template and never roll out.
-TAG=dev-$(docker image inspect paywallet:dev --format '{{.Id}}' | cut -d: -f2 | cut -c1-12)
-docker tag paywallet:dev "paywallet:$TAG"
-kind load docker-image "paywallet:$TAG" --name "$CLUSTER"
+build() {
+  docker build -q -t "$1:dev" "$2" > /dev/null
+  local tag
+  tag=dev-$(docker image inspect "$1:dev" --format '{{.Id}}' | cut -d: -f2 | cut -c1-12)
+  docker tag "$1:dev" "$1:$tag"
+  kind load docker-image "$1:$tag" --name "$CLUSTER" > /dev/null
+  echo "$tag"
+}
+TAG=$(build paywallet "$ROOT")
+WEB_TAG=$(build paywallet-web "$ROOT/frontend")
 
 kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -n "$NAMESPACE" -f "$ROOT/deploy/kind/dependencies.yaml"
@@ -32,11 +38,11 @@ if [ ! -s "$JWT_KEY" ]; then
 fi
 
 helm upgrade --install paywallet "$ROOT/deploy/helm/paywallet" -n "$NAMESPACE" \
-  -f "$ROOT/deploy/kind/values-kind.yaml" --set image.tag="$TAG" \
+  -f "$ROOT/deploy/kind/values-kind.yaml" --set image.tag="$TAG" --set web.image.tag="$WEB_TAG" \
   --set-file secrets.JWT_PRIVATE_KEY="$JWT_KEY" --wait --timeout 10m
 helm test paywallet -n "$NAMESPACE" --logs
 
 echo
-echo "API:    kubectl -n $NAMESPACE port-forward svc/paywallet 8080:8080"
+echo "App:    kubectl -n $NAMESPACE port-forward svc/paywallet-web 8080:80, then http://localhost:8080"
 echo "Health: kubectl -n $NAMESPACE port-forward svc/paywallet 8081:8081"
 echo "Remove: kind delete cluster --name $CLUSTER"

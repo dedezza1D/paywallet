@@ -30,11 +30,27 @@ service:
   port: 8080
   managementPort: 8081
 
+# The web app (deployed with the API): static files plus a proxy that serves the API under /api.
+web:
+  enabled: true
+  image:
+    repository: ghcr.io/dedezza1d/paywallet-web
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
 ingress:
   enabled: false
   className: ""
   annotations: {}
-  host: api.paywallet.example
+  host: app.paywallet.example
   # Name of the TLS secret for the host; empty = no TLS section (terminated elsewhere).
   tlsSecretName: ""
 
@@ -64,7 +80,9 @@ config:
   KMS_CREATE_MASTER_KEY: "false"
   SMTP_HOST: smtp
   SMTP_PORT: "587"
-  PAYMENT_LINK_BASE_URL: https://api.paywallet.example/pay/
+  PAYMENT_LINK_BASE_URL: https://app.paywallet.example/pay/
+  # The web app serves the API under /api.
+  API_SERVER_URL: /api
   # Requests arrive through the ingress controller, which sets X-Forwarded-*.
   FORWARD_HEADERS_STRATEGY: native
   OTLP_TRACING_EXPORT_ENABLED: "false"

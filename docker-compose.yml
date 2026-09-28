@@ -98,6 +98,8 @@ services:
       # Development only: encrypts gift card codes at rest.
       VOUCHER_KEY: mVA0yS2utY5uFJAj5mDvHGqvZCT8bhlSXbz079HZL9o=
       PAYMENT_LINK_BASE_URL: https://localhost/pay/
+      # The API is served under /api by the web app's proxy.
+      API_SERVER_URL: /api
       FORWARD_HEADERS_STRATEGY: native
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
@@ -111,12 +113,15 @@ services:
       # Management port (health, metrics). Published for local development only; keep it private elsewhere.
       - "8081:8081"
 
+  # The web app and the HTTPS edge: serves the app and proxies /api to the application.
   caddy:
-    image: caddy:2.10-alpine
+    build: ./frontend
     depends_on:
       - app
+    environment:
+      CADDY_GLOBAL_OPTIONS: local_certs
+      API_UPSTREAM: app:8080
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data
     ports:
       - "80:80"
