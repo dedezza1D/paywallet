@@ -40,12 +40,20 @@ jobs:
           done
 
   image:
-    name: Image build and scan
+    name: Image build and scan (${{ matrix.image }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: paywallet
+            context: .
+          - image: paywallet-web
+            context: frontend
     steps:
       - uses: actions/checkout@v5
 
@@ -54,28 +62,30 @@ jobs:
       - name: Build
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.context }}
           load: true
-          tags: paywallet:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ matrix.image }}:ci
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
       # Fails on critical vulnerabilities that already have a fix available.
       - name: Scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: paywallet:ci
+          image-ref: ${{ matrix.image }}:ci
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
 
       - name: Publish to GitHub Container Registry
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ${{ matrix.image }}
         run: |
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/paywallet"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE"
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker tag paywallet:ci "$image:${GITHUB_SHA::12}"
-          docker tag paywallet:ci "$image:latest"
+          docker tag "$IMAGE:ci" "$image:${GITHUB_SHA::12}"
+          docker tag "$IMAGE:ci" "$image:latest"
           docker push "$image:${GITHUB_SHA::12}"
           docker push "$image:latest"
 

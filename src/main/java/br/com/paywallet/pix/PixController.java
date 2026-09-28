@@ -3,6 +3,10 @@ package br.com.paywallet.pix;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -94,6 +98,14 @@ public class PixController {
         }
         var status = result.payment().status() == PixPayment.Status.PENDING ? HttpStatus.ACCEPTED : HttpStatus.CREATED;
         return ResponseEntity.status(status).body(result.payment());
+    }
+
+    /** Sent and received, newest first; an internal Pix shows as incoming to its receiver. */
+    @GetMapping("/payments")
+    public Page<PixPaymentResponse> list(@AuthenticationPrincipal Jwt jwt,
+                                         @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC)
+                                         Pageable pageable) {
+        return pix.list(userId(jwt), pageable);
     }
 
     @GetMapping("/payments/{endToEndId}")

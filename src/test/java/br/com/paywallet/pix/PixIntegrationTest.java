@@ -133,8 +133,17 @@ class PixIntegrationTest extends IntegrationTest {
         assertThat(endToEndId).hasSize(32).startsWith("E");
         assertThat(balanceOf(payer)).isEqualByComparingTo("60.00");
         assertThat(balanceOf(payee)).isEqualByComparingTo("40.00");
-        mvc.perform(get("/pix/payments/{id}", endToEndId).with(as(payee))).andExpect(status().isOk());
+        mvc.perform(get("/pix/payments/{id}", endToEndId).with(as(payee)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.direction").value("IN"))
+                .andExpect(jsonPath("$.counterpartyName").value("Internal Payer"));
         mvc.perform(get("/pix/payments/{id}", endToEndId).with(as(stranger))).andExpect(status().isNotFound());
+        mvc.perform(get("/pix/payments").with(as(payer)))
+                .andExpect(jsonPath("$.content[0].endToEndId").value(endToEndId))
+                .andExpect(jsonPath("$.content[0].direction").value("OUT"));
+        mvc.perform(get("/pix/payments").with(as(payee)))
+                .andExpect(jsonPath("$.content[0].direction").value("IN"));
+        mvc.perform(get("/pix/payments").with(as(stranger))).andExpect(jsonPath("$.content").isEmpty());
         verify(notificationClient, timeout(ASYNC.toMillis())).send(eq(payee.email()), contains("Pix of R$ 40.00"));
     }
 

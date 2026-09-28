@@ -1,0 +1,41 @@
+{
+	# Docker Compose sets "local_certs" (HTTPS on localhost from Caddy's own CA); Kubernetes leaves TLS to the ingress.
+	{$CADDY_GLOBAL_OPTIONS}
+	servers {
+		# Only these proxies may set X-Forwarded-For. Caddy is the edge in Docker Compose (trust nobody); behind an
+		# ingress controller it is not, so Kubernetes trusts the private ranges the ingress connects from.
+		trusted_proxies static {$TRUSTED_PROXIES:127.0.0.1/32}
+	}
+}
+
+{$SITE_ADDRESS:localhost} {
+	encode zstd gzip
+
+	handle_path /api/* {
+		reverse_proxy {$API_UPSTREAM:app:8080}
+	}
+
+	# Swagger UI and its OpenAPI document are served by the API at the root.
+	@docs path /swagger-ui* /v3/api-docs*
+	handle @docs {
+		reverse_proxy {$API_UPSTREAM:app:8080}
+	}
+
+	handle {
+		root * /srv
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		# Client-side routes (e.g. /pay/{token}) all load the app.
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+}

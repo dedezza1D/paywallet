@@ -63,6 +63,9 @@ server:
   forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
 
 app:
+  openapi:
+    # "/api" when the API is served behind the web app's proxy.
+    server-url: ${API_SERVER_URL:/}
   security:
     jwt:
       issuer: ${JWT_ISSUER:https://api.paywallet.local}

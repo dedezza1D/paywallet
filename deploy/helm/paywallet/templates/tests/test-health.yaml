@@ -28,6 +28,10 @@ spec:
         - >-
           curl -fsS http://{{ include "paywallet.fullname" . }}:{{ .Values.service.managementPort }}/actuator/health/readiness
           && curl -fsS http://{{ include "paywallet.fullname" . }}:{{ .Values.service.port }}/.well-known/jwks.json > /dev/null
+          {{- if .Values.web.enabled }}
+          && curl -fsS http://{{ include "paywallet.web.fullname" . }}/ | grep -q '<div id="root">'
+          && curl -fsS http://{{ include "paywallet.web.fullname" . }}/api/.well-known/jwks.json > /dev/null
+          {{- end }}
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true

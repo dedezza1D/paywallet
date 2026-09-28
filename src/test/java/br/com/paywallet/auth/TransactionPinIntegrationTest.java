@@ -1,6 +1,7 @@
 package br.com.paywallet.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -89,6 +90,7 @@ class TransactionPinIntegrationTest extends IntegrationTest {
         var payer = newUserWithBalance("New Pin Payer", "100.00");
         var payee = newUser(UserType.COMMON, "New Pin Payee");
         jdbc.update("UPDATE users SET transaction_pin_hash = NULL WHERE id = ?", payer.id());
+        mvc.perform(get("/users/{id}", payer.id()).with(as(payer))).andExpect(jsonPath("$.transactionPinSet").value(false));
 
         transfer(payer, payee, TEST_PIN)
                 .andExpect(status().isPreconditionRequired())
@@ -99,6 +101,9 @@ class TransactionPinIntegrationTest extends IntegrationTest {
                 .andExpect(jsonPath("$.detail").value("Choose a PIN that is not a repeated digit or a sequence"));
         setPin(payer, PASSWORD, "12345").andExpect(status().isBadRequest());
         setPin(payer, PASSWORD, "730514").andExpect(status().isNoContent());
+        mvc.perform(get("/users/{id}", payer.id()).with(as(payer)))
+                .andExpect(jsonPath("$.transactionPinSet").value(true))
+                .andExpect(jsonPath("$.twoFactorEnabled").value(false));
 
         transfer(payer, payee, "730514").andExpect(status().isCreated());
     }

@@ -1,7 +1,8 @@
 # PayWallet
 
 Digital wallet payments platform built with **Java 21 and Spring Boot 3.5**, using polyglot persistence:
-each kind of data lives in the store that best fits it.
+each kind of data lives in the store that best fits it. A **React** web app (`frontend/`) covers the customer
+experience end to end.
 
 ```
   POST /transfer
@@ -453,7 +454,8 @@ docker compose up --build
 
 | URL | What |
 |---|---|
-| https://localhost/swagger-ui.html | API and Swagger UI through Caddy (use **Authorize** with the access token) |
+| https://localhost | Web app (sign up, confirm the email with the code from Mailpit, and add test money on the home screen) |
+| https://localhost/swagger-ui.html | Swagger UI (use **Authorize** with the access token); the API itself is under https://localhost/api |
 | http://localhost:8025 | Mailpit: every email the application sends (confirmation and reset codes) |
 | http://localhost:8081/actuator/health | Health and metrics (management port) |
 | http://localhost:3000 | Grafana, *PayWallet overview* dashboard (anonymous viewer) |
@@ -479,6 +481,31 @@ must be running:
 mvn test
 ```
 
+## Web app
+
+`frontend/` is a single-page app in **React 19, TypeScript and Vite**, with TanStack Query for server state and
+Tailwind CSS. It covers the customer side of every feature: sign-up with email confirmation, sign-in with two-factor
+authentication, password reset, transaction PIN, balance and statement, transfers, Pix (keys, QR codes, sending by key
+or copy-and-paste code, history, returns and fraud reports), bill payments, debit and credit cards (bills, installment
+plans, disputes), loans (credit analysis, simulation with IOF and CET, early payoff), the store with cashback, earnings,
+documents and merchant payment links (`/pay/{token}`). Merchant and back-office screens are not part of it yet.
+
+- Payments go through one PIN dialog; each confirmed payment gets its own `Idempotency-Key`, reused if the user
+  retries after a wrong PIN, so a retry never pays twice. Pending Pix, bills and orders refresh until they settle.
+- The access token lives only in memory and the refresh token in `sessionStorage` (per tab, gone when the tab
+  closes). Token rotation runs one at a time, because the API revokes the session when a refresh token is reused.
+- The Docker image is Caddy serving the build and proxying `/api` to the application, with a strict
+  Content-Security-Policy. In Docker Compose it is also the HTTPS edge; in Kubernetes it sits behind the ingress.
+
+Development server with hot reload, against the Compose stack (API through `https://localhost`):
+
+```bash
+cd frontend
+npm install
+npm run dev        # http://localhost:5173
+npm test           # unit tests (Vitest)
+```
+
 ## Kubernetes
 
 The Helm chart in `deploy/helm/paywallet` runs the application as a stateless Deployment:
@@ -490,6 +517,7 @@ The Helm chart in `deploy/helm/paywallet` runs the application as a stateless De
 - Non-root, read-only root filesystem, no Linux capabilities, no service account token.
 - A NetworkPolicy that exposes the management port (health and metrics) only to the monitoring namespace, plus an
   optional Ingress and Prometheus Operator ServiceMonitor.
+- The web app as a second Deployment (`web`), which the ingress routes to; it proxies `/api` to the API Service.
 - Configuration from `values.yaml` (`config`) and secrets from an existing Secret (`existingSecret`, e.g. synced by
   External Secrets) or from `secrets`.
 
@@ -497,20 +525,24 @@ Local cluster with [kind](https://kind.sigs.k8s.io/) (requires docker, kind, kub
 
 ```bash
 ./deploy/kind/up.sh
-kubectl -n paywallet port-forward svc/paywallet 8080:8080
+kubectl -n paywallet port-forward svc/paywallet-web 8080:80   # then open http://localhost:8080
 ```
 
-The script builds the image, loads it into the cluster, starts single-instance data stores
+The script builds both images, loads them into the cluster, starts single-instance data stores
 (`deploy/kind/dependencies.yaml`), installs the chart with `deploy/kind/values-kind.yaml`, and runs `helm test`.
 It also generates the JWT signing key once and keeps it in the release Secret, so every replica accepts the
-tokens issued by the others, and tags the image by content so running it again after a change rolls out the new
+tokens issued by the others, and tags the images by content so running it again after a change rolls out the new
 build. Remove everything with `kind delete cluster --name paywallet`.
 
 The *Container and chart* workflow lints the chart and validates the rendered manifests against the Kubernetes
-schemas, builds the image and fails on fixable critical vulnerabilities (Trivy), and deploys it to a kind cluster.
-On `main`, the image is published to `ghcr.io/dedezza1d/paywallet` tagged with the commit.
+schemas, builds both images and fails on fixable critical vulnerabilities (Trivy), and deploys them to a kind cluster.
+On `main`, the images are published to `ghcr.io/dedezza1d/paywallet` and `ghcr.io/dedezza1d/paywallet-web`,
+tagged with the commit.
 
 ## API
+
+Paths are relative to the API root: `https://localhost/api` behind the web app, or `http://localhost:8080` when the
+application runs directly.
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
@@ -545,6 +577,7 @@ On `main`, the image is published to `ghcr.io/dedezza1d/paywallet` tagged with t
 | GET | `/pix/keys/lookup?key=` | user | Receiver name (masked document) before paying. Rate limited |
 | POST | `/pix/qr-codes` | user | Static BR Code for an own key |
 | POST | `/pix/payments` | user | Send a Pix by key or BR Code. Requires `Idempotency-Key`. 201 settled, 202 pending |
+| GET | `/pix/payments` | user | Own Pix, sent and received, newest first (paged) |
 | GET | `/pix/payments/{endToEndId}` | payer or payee | Pix status |
 | POST | `/pix/webhooks/incoming` | HMAC | Incoming Pix notification from the PSP |
 | POST | `/merchant/charges` | merchant | Create a charge. 201 new, 200 when the `reference` already exists |
@@ -607,7 +640,7 @@ On `main`, the image is published to `ghcr.io/dedezza1d/paywallet` tagged with t
 ### Example
 
 ```bash
-API=https://localhost   # -k below: Caddy's local CA is not trusted by default
+API=https://localhost/api   # -k below: Caddy's local CA is not trusted by default
 
 curl -k -X POST $API/users -H "Content-Type: application/json" -d '{
   "fullName": "Mary Smith", "document": "12345678901", "email": "mary@mail.com",
