@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.6</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -21,6 +21,9 @@
         <java.version>21</java.version>
         <springdoc.version>2.8.13</springdoc.version>
         <aws-sdk.version>2.31.1</aws-sdk.version>
+        <!-- Ahead of the Boot BOM for critical CVEs fixed after its release (the image scan fails on them). -->
+        <tomcat.version>10.1.60</tomcat.version>
+        <netty.version>4.1.138.Final</netty.version>
     </properties>
 
     <dependencyManagement>
